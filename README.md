@@ -111,3 +111,6 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 1. Party + WebSocket z pytaniami wpisanymi na sztywno.
 2. Upload PDF/TXT + generowanie pytań przez NVIDIA API.
 5. Reconnect, edycja pytań przez hosta, kolejne formaty plików.
+
+
+Prawdopodobnie trzeba bedzie postawic apke na vercel gdyz nie znam tanszej alternatywy dla hostingu.
