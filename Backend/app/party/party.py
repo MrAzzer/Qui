@@ -131,6 +131,9 @@ class Party:
         self.host_ws = ws
         await self.send_host(message("host_joined", **self.summary()))
         await self.send_host(message("lobby_update", players=[p.public() for p in self.players.values()]))
+        if self.state == PartyState.QUESTION:
+            await self.send_host(self._question_message())
+            await self.send_host(message("answer_count", answered=len(self.answers), total=self._active_player_count()))
 
     async def detach_host(self, ws: WebSocket) -> None:
         # The party keeps running; the host can reconnect with the same token.
@@ -182,8 +185,8 @@ class Party:
         if player.ws is not ws:  # already replaced by a newer connection
             return
         player.ws = None
+        # A dropped phone doesn't end the question: it may reconnect before the timer runs out.
         await self.broadcast_lobby()
-        await self._maybe_reveal_early()
 
     async def kick(self, player_id: str) -> None:
         player = self.players.pop(player_id, None)
@@ -275,8 +278,8 @@ class Party:
     async def _maybe_reveal_early(self) -> None:
         if self.state != PartyState.QUESTION:
             return
-        waiting_for = [p for p in self.players.values() if p.connected and p.id not in self.answers]
-        if not waiting_for:
+        connected = [p for p in self.players.values() if p.connected]
+        if connected and all(p.id in self.answers for p in connected):
             await self.reveal()
 
     async def reveal(self) -> None:

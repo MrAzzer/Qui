@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Qui — Host</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <section id="start" data-screen>
+    <h1>Qui</h1>
+    <p class="muted">Ucz się w grupie. Każdy dołącza telefonem przez kod QR.</p>
+    <button id="create-btn">Utwórz party</button>
+    <p id="start-status" class="muted"></p>
+    <p id="start-error" class="error"></p>
+  </section>
+
+  <section id="lobby" data-screen hidden>
+    <p class="muted">Zeskanuj kod telefonem</p>
+    <div id="qr"></div>
+    <div class="big-code" id="code"></div>
+    <a class="join-link" id="join-link" target="_blank"></a>
+    <div class="card">
+      <h2><span id="player-count">0</span> graczy</h2>
+      <ul class="players" id="players"></ul>
+    </div>
+    <button id="start-btn" disabled>Start</button>
+    <p id="lobby-error" class="error"></p>
+  </section>
+
+  <section id="question" data-screen hidden>
+    <p class="muted">Pytanie <span id="q-index"></span> / <span id="q-total"></span></p>
+    <div class="timer" id="q-timer"></div>
+    <h2 id="q-text"></h2>
+    <div class="choices" id="q-choices"></div>
+    <p class="muted">Odpowiedzi: <span id="q-answered">0</span> / <span id="q-players">0</span></p>
+    <button class="secondary" id="skip-btn">Zakończ pytanie</button>
+  </section>
+
+  <section id="reveal" data-screen hidden>
+    <h2 id="r-text"></h2>
+    <div class="choices" id="r-choices"></div>
+    <div class="hint"><b>Jak zapamiętać:</b> <span id="r-hint"></span></div>
+    <p class="muted" id="r-explanation"></p>
+    <div class="card"><ol class="leaderboard" id="r-leaderboard"></ol></div>
+    <button id="next-btn">Dalej</button>
+  </section>
+
+  <section id="over" data-screen hidden>
+    <h1>Koniec!</h1>
+    <div class="card"><ol class="leaderboard" id="o-leaderboard"></ol></div>
+    <div class="card" style="text-align:left">
+      <h2>Do powtórki</h2>
+      <div id="o-weakest"></div>
+    </div>
+    <button id="new-btn">Nowe party</button>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+  let ws = null;
+  let currentQuestion = null;
+
+  async function createParty() {
+    $("#create-btn").disabled = true;
+    $("#start-error").textContent = "";
+    $("#start-status").textContent = "Łączenie z serwerem… (darmowy serwer może budzić się do minuty)";
+    try {
+      const res = await fetch(`${API_URL}/api/parties`, { method: "POST" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const party = await res.json();
+      sessionStorage.setItem("qui-host", JSON.stringify(party));
+      openParty(party);
+    } catch (e) {
+      $("#start-error").textContent = `Nie udało się utworzyć party (${e.message}). Backend: ${API_URL}`;
+    } finally {
+      $("#create-btn").disabled = false;
+      $("#start-status").textContent = "";
+    }
+  }
+
+  function openParty(party) {
+    // QR points at this same frontend, so it works locally and on Vercel.
+    const joinUrl = `${location.origin}/join.html?code=${party.code}`;
+    $("#code").textContent = party.code;
+    $("#join-link").textContent = joinUrl;
+    $("#join-link").href = joinUrl;
+    $("#qr").replaceChildren();
+    new QRCode($("#qr"), { text: joinUrl, width: 220, height: 220 });
+
+    ws = connect(`/ws/party/${party.code}/host?token=${encodeURIComponent(party.host_token)}`, onMessage, (e) => {
+      if (e.code === 4404 || e.code === 4401) {
+        sessionStorage.removeItem("qui-host");
+        showScreen("start");
+        $("#start-error").textContent = "Party już nie istnieje (np. restart serwera). Utwórz nowe.";
+      } else if (e.code !== 4409) {
+        setTimeout(() => openParty(party), 2000); // network hiccup → reconnect
+      }
+    });
+  }
+
+  function onMessage(type, data) {
+    switch (type) {
+      case "host_joined":
+        // after a reconnect the server re-sends the open question; otherwise show what we can
+        if (data.state === "lobby") showScreen("lobby");
+        else if (data.state === "reveal") showScreen("reveal");
+        break;
+      case "lobby_update": {
+        const players = data.players;
+        $("#player-count").textContent = players.length;
+        $("#q-players").textContent = players.filter((p) => p.connected).length;
+        $("#players").replaceChildren(...players.map((p) => {
+          const li = document.createElement("li");
+          li.textContent = p.nick;
+          if (!p.connected) li.classList.add("offline");
+          return li;
+        }));
+        $("#start-btn").disabled = players.length === 0;
+        break;
+      }
+      case "question":
+        currentQuestion = data;
+        $("#q-index").textContent = data.index + 1;
+        $("#q-total").textContent = data.total;
+        $("#q-text").textContent = data.text;
+        $("#q-answered").textContent = 0;
+        $("#q-choices").replaceChildren(...data.choices.map((c, i) => {
+          const div = document.createElement("div");
+          div.className = CHOICE_CLASSES[i];
+          div.textContent = c;
+          return div;
+        }));
+        startCountdown($("#q-timer"), data.time_left);
+        showScreen("question");
+        break;
+      case "answer_count":
+        $("#q-answered").textContent = data.answered;
+        $("#q-players").textContent = data.total;
+        break;
+      case "reveal":
+        stopCountdown();
+        $("#r-text").textContent = currentQuestion ? currentQuestion.text : "";
+        $("#r-choices").replaceChildren(...(currentQuestion ? currentQuestion.choices : []).map((c, i) => {
+          const div = document.createElement("div");
+          div.className = `${CHOICE_CLASSES[i]} ${i === data.correct ? "correct" : "wrong"}`;
+          div.textContent = `${c} · ${data.choice_counts[i]}`;
+          return div;
+        }));
+        $("#r-hint").textContent = data.hint;
+        $("#r-explanation").textContent = data.explanation;
+        renderLeaderboard($("#r-leaderboard"), data.leaderboard.slice(0, 5));
+        $("#next-btn").textContent = data.is_last ? "Wyniki" : "Dalej";
+        showScreen("reveal");
+        break;
+      case "game_over":
+        renderLeaderboard($("#o-leaderboard"), data.leaderboard);
+        $("#o-weakest").replaceChildren(...data.weakest_questions.map((w) => {
+          const div = document.createElement("div");
+          div.className = "hint";
+          const q = document.createElement("div");
+          q.textContent = `${w.text} → ${w.correct_answer} (${Math.round(w.correct_ratio * 100)}% poprawnych)`;
+          const h = document.createElement("div");
+          h.className = "muted";
+          h.textContent = w.hint;
+          div.append(q, h);
+          return div;
+        }));
+        showScreen("over");
+        break;
+      case "error":
+        $("#lobby-error").textContent = data.message;
+        break;
+    }
+  }
+
+  $("#create-btn").onclick = createParty;
+  $("#start-btn").onclick = () => ws.sendMsg("start_game");
+  $("#skip-btn").onclick = () => ws.sendMsg("next_question");
+  $("#next-btn").onclick = () => ws.sendMsg("next_question");
+  $("#new-btn").onclick = () => {
+    sessionStorage.removeItem("qui-host");
+    ws.onclose = null;
+    ws.close();
+    showScreen("start");
+  };
+
+  const saved = sessionStorage.getItem("qui-host");
+  if (saved) openParty(JSON.parse(saved));
+  else showScreen("start");
+</script>
+</body>
+</html>

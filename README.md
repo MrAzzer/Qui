@@ -113,4 +113,22 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 5. Reconnect, edycja pytań przez hosta, kolejne formaty plików.
 
 
-Prawdopodobnie trzeba bedzie postawic apke na vercel gdyz nie znam tanszej alternatywy dla hostingu.
+# Deploy (darmowy)
+
+Frontend → **Vercel**, backend → **Render**. Backend nie może stać na Vercelu: funkcje serverless nie utrzymują
+połączeń WebSocket ani stanu party w pamięci. Oba serwisy dają publiczny adres HTTPS, więc telefony nie muszą być w tej samej sieci.
+
+**1. Backend (Render)**
+1. render.com → *New* → *Blueprint* → wybierz to repo (Render czyta [render.yaml](render.yaml)).
+2. W ustawieniach serwisu dodaj `CORS_ORIGINS` = adres z Vercela (po kroku 2, np. `https://qui.vercel.app`) i `NVIDIA_API_KEY`.
+3. Sprawdź `https://qui-backend.onrender.com/health` → `{"status":"ok"}`.
+
+Darmowy plan usypia serwer po 15 min bez ruchu — pierwsze wejście trwa wtedy do ~1 min. Restart/uśpienie kasuje trwające party.
+
+**2. Frontend (Vercel)**
+1. Wpisz adres backendu z Render w [Frontend/config.js](Frontend/config.js) (`window.QUI_API_URL = "https://…onrender.com"`) i zrób push.
+2. vercel.com → *Add New Project* → to repo → **Root Directory: `Frontend`**, Framework: *Other*, bez build command.
+3. Otwórz adres z Vercela na laptopie → *Utwórz party* → zeskanuj QR telefonem.
+
+**Lokalnie (ta sama sieć Wi-Fi):** backend `uvicorn app.main:app --host 0.0.0.0 --port 8000` w `Backend/`,
+frontend `python3 -m http.server 5173` w `Frontend/`, na laptopie otwórz `http://<IP laptopa>:5173` (nie `localhost`, bo QR prowadziłby do `localhost` na telefonie).

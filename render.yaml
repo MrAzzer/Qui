@@ -1,0 +1,19 @@
+# Render Blueprint — backend (FastAPI + WebSocket).
+# Vercel nie utrzymuje połączeń WebSocket ani stanu w pamięci, więc backend stoi tutaj, a frontend na Vercelu.
+services:
+  - type: web
+    name: qui-backend
+    runtime: python
+    plan: free
+    rootDir: Backend
+    buildCommand: pip install -r requirements.txt
+    # Jedna instancja: party są trzymane w pamięci procesu.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: CORS_ORIGINS
+        sync: false # ustaw w panelu Render: adres z Vercela, np. https://qui.vercel.app
+      - key: NVIDIA_API_KEY
+        sync: false
