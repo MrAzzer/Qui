@@ -97,21 +97,17 @@ LOBBY ──start_game──▶ QUESTION ──czas minął / wszyscy odpowiedzi
 # Uruchomienie (dev)
 
 ```bash
-cd backend
+cd Backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # NVIDIA_API_KEY
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-`.env` jest w `.gitignore` — **nigdy nie commitujemy klucza NVIDIA**.
-
 ---
 
-## Kolejność prac (MVP)
+## Kolejność prac
 
-1. Party + WebSocket z pytaniami wpisanymi na sztywno → test na kilku telefonach. Równolegle Marvin dopracowuje prompty na przykładowych materiałach, a Natalia robi widoki na mockowanych danych.
-2. Punktacja i ranking.
-3. Upload PDF/TXT + generowanie pytań przez NVIDIA API.
-4. Wskazówki do zapamiętywania i podsumowanie najsłabszych pytań.
+1. Party + WebSocket z pytaniami wpisanymi na sztywno.
+2. Upload PDF/TXT + generowanie pytań przez NVIDIA API.
 5. Reconnect, edycja pytań przez hosta, kolejne formaty plików.
