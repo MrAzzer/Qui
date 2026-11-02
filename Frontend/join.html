@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Qui — Dołącz</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <section id="join" data-screen>
+    <h1>Qui</h1>
+    <form id="join-form">
+      <input id="code-input" inputmode="numeric" maxlength="6" placeholder="Kod party" required>
+      <input id="nick-input" maxlength="20" placeholder="Twój nick" autocomplete="nickname" required>
+      <button type="submit" id="join-btn">Dołącz</button>
+    </form>
+    <p id="join-error" class="error"></p>
+  </section>
+
+  <section id="waiting" data-screen hidden>
+    <h2>Jesteś w grze, <span id="w-nick"></span>!</h2>
+    <p class="muted">Czekamy, aż host wystartuje…</p>
+    <ul class="players" id="w-players"></ul>
+  </section>
+
+  <section id="question" data-screen hidden>
+    <p class="muted">Pytanie <span id="q-index"></span> / <span id="q-total"></span></p>
+    <div class="timer" id="q-timer"></div>
+    <h2 id="q-text"></h2>
+    <div class="choices" id="q-choices"></div>
+    <p id="q-error" class="error"></p>
+  </section>
+
+  <section id="sent" data-screen hidden>
+    <h2>Odpowiedź wysłana ✓</h2>
+    <p class="muted">Czekamy na pozostałych…</p>
+  </section>
+
+  <section id="reveal" data-screen hidden>
+    <h1 id="r-result"></h1>
+    <div class="points" id="r-points"></div>
+    <p class="muted">Razem: <b id="r-score"></b> pkt · miejsce <b id="r-rank"></b><span id="r-streak"></span></p>
+    <p>Poprawna odpowiedź: <b id="r-correct"></b></p>
+    <div class="hint"><b>Jak zapamiętać:</b> <span id="r-hint"></span></div>
+    <p class="muted" id="r-explanation"></p>
+  </section>
+
+  <section id="over" data-screen hidden>
+    <h1>Koniec!</h1>
+    <h2 id="o-rank"></h2>
+    <div class="card"><ol class="leaderboard" id="o-leaderboard"></ol></div>
+    <div class="card" style="text-align:left">
+      <h2>Do powtórki</h2>
+      <div id="o-weakest"></div>
+    </div>
+  </section>
+
+  <section id="closed" data-screen hidden>
+    <h2 id="c-message"></h2>
+    <button id="rejoin-btn">Dołącz ponownie</button>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  let code = params.get("code") || "";
+  let ws = null;
+  let me = null;
+  let question = null;
+
+  const tokenKey = (c) => `qui-player-${c}`;
+
+  function join(nick) {
+    const token = localStorage.getItem(tokenKey(code));
+    const query = token
+      ? `reconnect_token=${encodeURIComponent(token)}`
+      : `nick=${encodeURIComponent(nick)}`;
+    ws = connect(`/ws/party/${code}/player?${query}`, onMessage, onClose);
+  }
+
+  function onClose(e) {
+    stopCountdown();
+    if (e.code === 4400 || e.code === 4404) {
+      // bad nick / game started / party gone → back to the form (error message already shown)
+      localStorage.removeItem(tokenKey(code));
+      me = null;
+      showScreen("join");
+      $("#join-btn").disabled = false;
+    } else if (e.code === 4403) {
+      localStorage.removeItem(tokenKey(code));
+      showClosed("Host usunął cię z gry.");
+    } else if (e.code === 4409) {
+      showClosed("Połączono z innego urządzenia lub karty.");
+    } else if (me) {
+      setTimeout(() => join(), 1500); // phone locked / network switch → reconnect with token
+    } else {
+      $("#join-error").textContent = `Brak połączenia z serwerem (${API_URL}).`;
+      $("#join-btn").disabled = false;
+      showScreen("join");
+    }
+  }
+
+  function showClosed(text) {
+    $("#c-message").textContent = text;
+    showScreen("closed");
+  }
+
+  function onMessage(type, data) {
+    switch (type) {
+      case "joined":
+        me = data;
+        localStorage.setItem(tokenKey(code), data.reconnect_token);
+        $("#w-nick").textContent = data.nick;
+        if (data.state === "lobby") showScreen("waiting");
+        else if (data.state !== "question") showScreen("sent");
+        break;
+      case "lobby_update":
+        $("#w-players").replaceChildren(...data.players.map((p) => {
+          const li = document.createElement("li");
+          li.textContent = p.nick;
+          return li;
+        }));
+        break;
+      case "question":
+        question = data;
+        $("#q-index").textContent = data.index + 1;
+        $("#q-total").textContent = data.total;
+        $("#q-text").textContent = data.text;
+        $("#q-error").textContent = "";
+        $("#q-choices").replaceChildren(...data.choices.map((c, i) => {
+          const btn = document.createElement("button");
+          btn.className = CHOICE_CLASSES[i];
+          btn.textContent = c;
+          btn.onclick = () => {
+            document.querySelectorAll("#q-choices button").forEach((b) => (b.disabled = true));
+            ws.sendMsg("answer", { question_id: data.question_id, choice: i });
+          };
+          return btn;
+        }));
+        startCountdown($("#q-timer"), data.time_left);
+        showScreen("question");
+        break;
+      case "answer_ack":
+        showScreen("sent");
+        break;
+      case "reveal": {
+        stopCountdown();
+        const answered = data.your_answer !== null;
+        const ok = answered && data.your_answer === data.correct;
+        $("#r-result").textContent = ok ? "Dobrze! 🎉" : answered ? "Źle 😕" : "Brak odpowiedzi ⏱";
+        $("#r-result").className = ok ? "result-ok" : "result-bad";
+        $("#r-points").textContent = `+${data.your_points}`;
+        $("#r-score").textContent = data.score;
+        $("#r-rank").textContent = data.rank;
+        $("#r-streak").textContent = data.streak > 1 ? ` · seria ${data.streak} 🔥` : "";
+        $("#r-correct").textContent = question ? question.choices[data.correct] : "";
+        $("#r-hint").textContent = data.hint;
+        $("#r-explanation").textContent = data.explanation;
+        showScreen("reveal");
+        break;
+      }
+      case "game_over": {
+        const rank = data.leaderboard.findIndex((p) => p.id === me.player_id) + 1;
+        $("#o-rank").textContent = rank ? `Zająłeś(-aś) ${rank}. miejsce` : "";
+        renderLeaderboard($("#o-leaderboard"), data.podium, me.player_id);
+        $("#o-weakest").replaceChildren(...data.weakest_questions.map((w) => {
+          const div = document.createElement("div");
+          div.className = "hint";
+          const q = document.createElement("div");
+          q.textContent = `${w.text} → ${w.correct_answer}`;
+          const h = document.createElement("div");
+          h.className = "muted";
+          h.textContent = w.hint;
+          div.append(q, h);
+          return div;
+        }));
+        localStorage.removeItem(tokenKey(code));
+        me = null;
+        showScreen("over");
+        break;
+      }
+      case "error":
+        if ($("#question").hidden) $("#join-error").textContent = data.message;
+        else $("#q-error").textContent = data.message;
+        break;
+    }
+  }
+
+  $("#code-input").value = code;
+  $("#join-form").onsubmit = (e) => {
+    e.preventDefault();
+    code = $("#code-input").value.trim();
+    $("#join-error").textContent = "";
+    $("#join-btn").disabled = true;
+    join($("#nick-input").value.trim());
+  };
+  $("#rejoin-btn").onclick = () => showScreen("join");
+
+  // Came back to the page mid-game (refresh, reopened tab) → reconnect automatically.
+  if (code && localStorage.getItem(tokenKey(code))) {
+    me = {};
+    join();
+  } else {
+    if (code) $("#nick-input").focus();
+    showScreen("join");
+  }
+</script>
+</body>
+</html>

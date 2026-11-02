@@ -1,0 +1,25 @@
+# Sekrety (klucz NVIDIA itd.) — nigdy do repo
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Bazy lokalne
+*.sqlite3
+*.db
+
+# Node / React (frontend Natalii)
+node_modules/
+dist/
+.vercel/
+
+# System / edytor
+.DS_Store
+.vscode/
+.idea/
