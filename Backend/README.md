@@ -60,7 +60,20 @@ Każda wiadomość: `{ "type": "...", "data": { ... } }`.
 Kody zamknięcia: `4400` zły nick / gra już trwa / party pełne, `4401` zły token hosta, `4403` wyrzucony,
 `4404` brak party, `4409` to samo konto połączyło się z innego urządzenia.
 
-## Kontrakt z AI (Marvin)
+## Moduł AI (Marvin): `app/quiz/`
 
-Pytanie = `app/quiz/schemas.py::Question`:
-`{ id, text, choices[2..4], correct, explanation, hint, time_limit }`. Do czasu podpięcia NVIDIA używamy `app/quiz/sample.py`.
+| Metoda | Ścieżka | Body | Odpowiedź |
+|---|---|---|---|
+| `POST` | `/api/quizzes/generate` | `{ text, count=5 (1–20), difficulty="medium" (easy/medium/hard), time_limit=20 }` | `201 { id, questions: [Question] }`, `422` złe dane, `502` AI nie dało poprawnego quizu |
+| `GET` | `/api/quizzes/{id}` | — | `{ id, questions }` lub `404` |
+| `POST` | `/api/parties` | `{ quiz_id }` | party z wygenerowanym quizem (bez `quiz_id` → przykładowy quiz z `sample.py`) |
+
+Pytanie = `app/quiz/schemas.py::Question`: `{ id, text, choices[2..4], correct, explanation, hint, time_limit }`.
+
+Jak to działa (`app/quiz/generator.py::generate_questions`): tekst → prompt (`prompts.py`) → LLM →
+walidacja Pydantic (`ai_schemas.py::AIQuiz`: 4 różne odpowiedzi, `correct_index` 0–3, bez duplikatów,
+dokładnie `count` pytań) → losowanie kolejności odpowiedzi → `Question`. Zły JSON od modelu jest
+ponawiany (`LLM_MAX_ATTEMPTS`, domyślnie 3). Quizy są na razie w pamięci (`store.py`), w T5 → SQLite.
+
+Dostawca AI: dowolne API zgodne z OpenAI, ustawiane w `.env` (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`,
+`LLM_RESPONSE_FORMAT`) — domyślnie GroqCloud `openai/gpt-oss-120b`, przykład dla NVIDIA w `.env.example`.

@@ -16,6 +16,7 @@ from app.party.party import (
     message,
 )
 from app.quiz.sample import get_sample_questions
+from app.quiz.store import quiz_store
 
 router = APIRouter()
 
@@ -35,9 +36,12 @@ class CreatePartyResponse(BaseModel):
 @router.post("/api/parties", response_model=CreatePartyResponse, status_code=201)
 async def create_party(body: Optional[CreatePartyRequest] = None) -> CreatePartyResponse:
     if body is not None and body.quiz_id is not None:
-        # TODO: load generated quiz once /api/quizzes exists
-        raise HTTPException(404, "Quiz not found")
-    party = manager.create(get_sample_questions())
+        questions = quiz_store.get(body.quiz_id)
+        if questions is None:
+            raise HTTPException(404, "Quiz not found")
+    else:
+        questions = get_sample_questions()
+    party = manager.create(questions)
     join_url = f"{get_settings().frontend_url.rstrip('/')}/join/{party.code}"
     return CreatePartyResponse(code=party.code, host_token=party.host_token, join_url=join_url)
 
