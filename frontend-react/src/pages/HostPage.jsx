@@ -90,119 +90,140 @@ export default function HostPage() {
     }
   }
 
+  // ekran startowy
   if (!party) {
     return (
-      <main>
-        <h1>qui?</h1>
-        <button onClick={createParty}>Utwórz grę</button>
+      <div className="lobby" style={{ justifyContent: "center" }}>
+        <h1 style={{ fontSize: 72, margin: 0 }}>qui?</h1>
+        <button className="start-btn" onClick={createParty}>Utwórz grę</button>
         {status && <p>{status}</p>}
-        {error && <p style={{ color: "crimson" }}>{error}</p>}
-      </main>
+        {error && <p style={{ color: "#ffd23f" }}>{error}</p>}
+      </div>
     );
   }
 
-    //ekran koncowy
+  // ekran końcowy: podium i pełny ranking
   if (gameOver) {
     const medals = ["🥇", "🥈", "🥉"];
     return (
-      <main>
-        <h1>Koniec gry!</h1>
-        <div style={{ display: "flex", justifyContent: "center", gap: 16 }}>
+      <div className="lobby">
+        <h1 style={{ margin: 0 }}>Koniec gry! 🏆</h1>
+        <div className="podium">
           {gameOver.podium.map((p, i) => (
-            <div key={p.id} style={{ padding: 16, borderRadius: 8, background: "#f2f2f2", minWidth: 120 }}>
+            <div key={p.id} className={`podium-place place-${i + 1}`}>
               <div style={{ fontSize: 40 }}>{medals[i]}</div>
               <strong>{p.nick}</strong>
               <div>{p.score} pkt</div>
             </div>
           ))}
         </div>
-
-        <h2>Pełny ranking</h2>
-        <ol>
-          {gameOver.leaderboard.map((p) => (
-            <li key={p.id}>{p.nick}: {p.score} pkt</li>
-          ))}
-        </ol>
-
-        <button onClick={() => { sessionStorage.removeItem("qui-host"); window.location.reload(); }}>
+        <div className="lobby-card">
+          <h2 style={{ marginTop: 0 }}>Pełny ranking</h2>
+          <ol className="rank-list">
+            {gameOver.leaderboard.map((p, i) => (
+              <li key={p.id}><span>{i + 1}. {p.nick}</span><strong>{p.score} pkt</strong></li>
+            ))}
+          </ol>
+        </div>
+        <button className="start-btn" onClick={() => { sessionStorage.removeItem("qui-host"); window.location.reload(); }}>
           Nowa gra
         </button>
-        
-      </main>
+      </div>
     );
   }
 
-  // Ekran pytania (i odsłonięcia, gdy przyjdzie reveal)
+  // ekran pytania (i odsłonięcia, gdy przyjdzie reveal)
   if (question) {
     return (
-      <main>
-        <p>Pytanie {question.index + 1} z {question.total}</p>
-        {!reveal && timeLeft !== null && <p style={{ fontSize: 32 }}>⏱ {timeLeft} s</p>}
-        <h1>{question.text}</h1>
+      <div className="lobby">
+        <div className="q-top">
+          <span>Pytanie {question.index + 1} / {question.total}</span>
+          {!reveal && timeLeft !== null && <span className="timer">{timeLeft}</span>}
+          <span>{!reveal && answerCount ? `Odpowiedzi: ${answerCount.answered}/${answerCount.total}` : ""}</span>
+        </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="lobby-card" style={{ maxWidth: 900 }}>
+          <h1 style={{ margin: 0 }}>{question.text}</h1>
+        </div>
+
+        <div className="q-tiles">
           {question.choices.map((choice, i) => {
             const isWrong = reveal && i !== reveal.correct;
             return (
-              <div key={i} style={{ background: COLORS[i], color: "white", padding: 24, borderRadius: 8, fontSize: 22,
-                                    opacity: isWrong ? 0.3 : 1 }}>
-                {reveal && i === reveal.correct && "✓ "}
-                {choice}
-                {reveal && <span> ({reveal.choice_counts[i]})</span>}
+              <div key={i} className={`tile ${isWrong ? "dim" : ""}`} style={{ background: COLORS[i] }}>
+                <span>{reveal && i === reveal.correct && "✓ "}{choice}</span>
+                {reveal && <span className="tile-count">{reveal.choice_counts[i]}</span>}
               </div>
             );
           })}
         </div>
 
-        {!reveal && answerCount && <p>Odpowiedzi: {answerCount.answered} / {answerCount.total}</p>}
-
-        {reveal && (
-          <>
-            {reveal.explanation && <p>{reveal.explanation}</p>}
-            <h2>Ranking</h2>
-            <ol>
-              {reveal.leaderboard.slice(0, 5).map((p) => (
-                <li key={p.id}>{p.nick}: {p.score} pkt</li>
-              ))}
-            </ol>
-          </>
+        {reveal && reveal.explanation && (
+          <div className="lobby-card" style={{ maxWidth: 900 }}>{reveal.explanation}</div>
         )}
 
-        <button onClick={() => wsRef.current?.send(JSON.stringify({ type: "next_question", data: {} }))}>
+        {reveal && (
+          <div className="lobby-card">
+            <h2 style={{ marginTop: 0 }}>Top 5</h2>
+            <ol className="rank-list">
+              {reveal.leaderboard.slice(0, 5).map((p, i) => (
+                <li key={p.id}><span>{i + 1}. {p.nick}</span><strong>{p.score} pkt</strong></li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        <button className="start-btn" onClick={() => wsRef.current?.send(JSON.stringify({ type: "next_question", data: {} }))}>
           {reveal ? (reveal.is_last ? "Wyniki końcowe" : "Następne pytanie") : "Pokaż odpowiedź"}
         </button>
-      </main>
+      </div>
     );
   }
-//generowanie kodu qr z pinu
-    const joinUrl = `${window.location.origin}/join/${party.code}`;
+
+  //generowanie kodu qr z pinu
+  const joinUrl = `${window.location.origin}/join/${party.code}`;
 
   return (
-    <main>
-      <h1>Kod gry: {party.code}</h1>
-      <QRCodeSVG value={joinUrl} size={220} />
-      <p>Zeskanuj kod albo wejdź na: {joinUrl}</p>
-          <h2>Gracze ({players.length})</h2>
-      <ul>
-        {players.map((p) => (
-          <li key={p.id}>{p.nick}</li>
+    <div className="lobby">
+      <div className="lobby-card">
+        <p style={{ margin: 0, fontWeight: 600 }}>Kod gry</p>
+        <div className="lobby-code">{party.code}</div>
+        <QRCodeSVG value={joinUrl} size={200} />
+        <p className="lobby-url">Zeskanuj albo wejdź na: {joinUrl}</p>
+      </div>
+
+      <h2 style={{ margin: 0 }}>
+        {players.length === 0 ? "Czekamy na graczy" : `Dołączyło: ${players.length}`}
+      </h2>
+      {players.length === 0 && (
+        <div className="waiting"><span></span><span></span><span></span></div>
+      )}
+
+      <div className="lobby-chips">
+        {players.map((p, i) => (
+          <div className="chip" key={p.id}>
+            <span className="chip-avatar" style={{ background: COLORS[i % COLORS.length] }}>
+              {p.nick[0]?.toUpperCase()}
+            </span>
+            {p.nick}
+          </div>
         ))}
-      </ul>
-      <p>
-        Czas na pytanie:
+      </div>
+
+      <div className="time-pick">
+        <span>Czas na pytanie: </span>
         {[10, 15, 20].map((s) => (
-          <button key={s} onClick={() => setTimeLimit(s)}
-                  style={{ marginLeft: 8, fontWeight: timeLimit === s ? "bold" : "normal" }}>
-            {s} s {timeLimit === s && "✓"}
+          <button key={s} className={timeLimit === s ? "active" : ""} onClick={() => setTimeLimit(s)}>
+            {s} s
           </button>
         ))}
-      </p>
-      <button onClick={() => wsRef.current?.send(JSON.stringify({ type: "start_game", data: {} }))}
-              disabled={players.length === 0}>
+      </div>
+
+      <button className="start-btn" disabled={players.length === 0}
+              onClick={() => wsRef.current?.send(JSON.stringify({ type: "start_game", data: {} }))}>
         Start gry
       </button>
-      {status && <p>{status}</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
-    </main>
+      {error && <p style={{ color: "#ffd23f" }}>{error}</p>}
+    </div>
   );
 }
