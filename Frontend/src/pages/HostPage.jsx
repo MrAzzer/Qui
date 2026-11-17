@@ -95,7 +95,7 @@ export default function HostPage() {
     return (
       <div className="lobby" style={{ justifyContent: "center" }}>
         <h1 style={{ fontSize: 72, margin: 0 }}>qui?</h1>
-        <button className="start-btn" onClick={createParty}>Utwórz grę</button>
+        <button className="start-btn" onClick={() => (window.location.href = "/start")}>Utwórz QUIZ</button>
         {status && <p>{status}</p>}
         {error && <p style={{ color: "#ffd23f" }}>{error}</p>}
       </div>
