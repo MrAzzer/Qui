@@ -1,12 +1,6 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "buildCommand": "",
-  "outputDirectory": ".",
-  "headers": [
-    {
-      "source": "/config.js",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-    }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://qui-backend-y0cp.onrender.com/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

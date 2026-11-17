@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.party.router import router as party_router
+from app.quiz.router import router as quiz_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -20,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(party_router)
+app.include_router(quiz_router)
 
 
 @app.get("/health")

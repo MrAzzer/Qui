@@ -1,6 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://qui-backend-y0cp.onrender.com/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
