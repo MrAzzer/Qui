@@ -1,13 +1,15 @@
+"""Punktacja: 500–1000 pkt za dobrą odpowiedź (szybciej = więcej) + seria do +500."""
+
 MAX_POINTS = 1000
 STREAK_BONUS = 100
 MAX_STREAK_BONUS = 500
 
 
 def points_for_answer(correct: bool, elapsed: float, time_limit: float, streak: int) -> int:
-    """Points for one answer.
+    """Punkty za jedną odpowiedź.
 
-    `elapsed` is measured by the server. `streak` is the number of correct answers
-    in a row *before* this one, so the second correct answer in a row gets +100.
+    `elapsed` mierzy serwer (nie telefon). `streak` to liczba dobrych odpowiedzi z rzędu *przed* tą,
+    więc druga dobra odpowiedź z rzędu dostaje +100, szósta i kolejne +500.
     """
     if not correct:
         return 0

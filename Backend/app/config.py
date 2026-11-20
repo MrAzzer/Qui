@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     llm_timeout: float = 60.0
     llm_max_attempts: int = 3
 
-    # Base URL of the React app; the QR code points to {frontend_url}/join/{code}
+    # Adres frontendu (React); kod QR prowadzi do {frontend_url}/join/{code}
     frontend_url: str = "http://localhost:5173"
     cors_origins: str = "*"
 

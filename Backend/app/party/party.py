@@ -1,3 +1,16 @@
+"""Party: stan jednej gry na żywo, trzymany w pamięci serwera.
+
+    LOBBY --start_game--> QUESTION --czas minął / wszyscy odpowiedzieli / host kończy--> REVEAL
+                             ^                                                           |
+                             +---------------------------next_question-------------------+
+                                                                                         v
+                                                                   (ostatnie pytanie) GAME_OVER
+
+Serwer jest źródłem prawdy: liczy czas, przyjmuje tylko pierwszą odpowiedź i nie wysyła poprawnej
+odpowiedzi razem z pytaniem. Wszystko działa w jednej pętli asyncio, więc zmiany stanu między
+kolejnymi `await` są atomowe — nie potrzeba blokad.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -96,8 +109,8 @@ class Party:
     current_index: int = -1
     question_started_at: float = 0.0
     started_at: Optional[datetime] = None
-    answers: Dict[str, Answer] = field(default_factory=dict)  # answers to the current question
-    history: List[Dict[str, Answer]] = field(default_factory=list)  # answers to finished questions
+    answers: Dict[str, Answer] = field(default_factory=dict)  # odpowiedzi na bieżące pytanie
+    history: List[Dict[str, Answer]] = field(default_factory=list)  # odpowiedzi na zakończone pytania
     question_stats: List[Dict[str, Any]] = field(default_factory=list)  # statystyki zakończonych pytań
     # Ostatnio wysłane komunikaty — do odtworzenia ekranu po ponownym połączeniu
     _last_reveal_host: Optional[Dict[str, Any]] = None
@@ -161,7 +174,9 @@ class Party:
             "max_players": self.max_players,
             "players": [{"nick": p.nick, "connected": p.connected} for p in self.players.values()],
             "question_count": len(self.questions),
-            "current_question": self.current_index + 1 if self.state in (PartyState.QUESTION, PartyState.REVEAL) else None,
+            "current_question": (
+                self.current_index + 1 if self.state in (PartyState.QUESTION, PartyState.REVEAL) else None
+            ),
             "host_connected": self.host_ws is not None,
         }
 
@@ -170,7 +185,7 @@ class Party:
             return
         try:
             await ws.send_text(text)
-        except Exception:  # client vanished mid-send; its own handler will clean up
+        except Exception:  # klient zniknął w trakcie wysyłania; jego własna obsługa posprząta
             log.debug("send failed", exc_info=True)
 
     async def _send(self, ws: Optional[WebSocket], msg: Dict[str, Any]) -> None:
@@ -225,13 +240,13 @@ class Party:
             await self.send_host(self._game_over_msg)
 
     async def detach_host(self, ws: WebSocket) -> None:
-        # The party keeps running; the host can reconnect with the same token.
+        # Gra toczy się dalej; host może wrócić z tym samym tokenem.
         if self.host_ws is ws:
             self.host_ws = None
             self._update_idle()
 
     def join(self, nick: str, reconnect_token: Optional[str], user_id: Optional[int] = None) -> Player:
-        """Find the player for a reconnect token (or logged-in user), or register a new one."""
+        """Gracz wracający (reconnect_token albo konto) albo nowy gracz — z walidacją nicka i limitu."""
         if reconnect_token:
             for p in self.players.values():
                 if secrets.compare_digest(p.reconnect_token, reconnect_token):
@@ -288,11 +303,11 @@ class Party:
             await self._send(ws, self._game_over_msg)
 
     async def detach_player(self, player: Player, ws: WebSocket) -> None:
-        if player.ws is not ws:  # already replaced by a newer connection
+        if player.ws is not ws:  # to połączenie zostało już zastąpione nowszym
             return
         player.ws = None
         self._update_idle()
-        # A dropped phone doesn't end the question: it may reconnect before the timer runs out.
+        # Zerwane połączenie nie kończy pytania: telefon może wrócić, zanim minie czas.
         await self.broadcast_lobby()
 
     async def kick(self, player_id: str) -> None:
@@ -325,7 +340,7 @@ class Party:
         await self._next_question()
 
     async def next(self) -> None:
-        """Host's "next" button: skip to reveal during a question, or advance after reveal."""
+        """Przycisk hosta „dalej”: w trakcie pytania kończy je, po odsłonięciu przechodzi do następnego."""
         if self.state == PartyState.QUESTION:
             await self.reveal()
         elif self.state == PartyState.REVEAL:
@@ -348,7 +363,7 @@ class Party:
         q = self.current_question
         assert q is not None
         elapsed = time.monotonic() - self.question_started_at
-        # Never include q.correct here — this goes to the players.
+        # Nigdy nie dodawaj tu q.correct — to idzie do graczy.
         return message(
             "question",
             question_id=q.id,
@@ -371,7 +386,7 @@ class Party:
         if self.state != PartyState.QUESTION or q is None or question_id != q.id:
             raise PartyError("Question is not open")
         if player.id in self.answers:
-            raise PartyError("Already answered")  # only the first answer counts
+            raise PartyError("Already answered")  # liczy się tylko pierwsza odpowiedź
         if not isinstance(choice, int) or isinstance(choice, bool) or not 0 <= choice < len(q.choices):
             raise PartyError("Invalid choice")
 

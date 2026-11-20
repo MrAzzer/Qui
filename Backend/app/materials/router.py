@@ -1,8 +1,6 @@
-from datetime import datetime
-from typing import List
-
 import logging
-from typing import Optional
+from datetime import datetime
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel

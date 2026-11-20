@@ -12,7 +12,7 @@ from app.quiz.schemas import Question
 
 
 class PartyManager:
-    """Keeps active parties in memory (one backend instance → enough; move to Redis to scale out)."""
+    """Aktywne party w pamięci. Wystarcza przy jednym procesie; przy kilku instancjach → Redis."""
 
     def __init__(self) -> None:
         self._parties: Dict[str, Party] = {}

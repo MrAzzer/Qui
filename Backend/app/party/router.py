@@ -1,3 +1,8 @@
+"""REST i WebSocket party: tworzenie gry, podgląd, połączenia hosta i graczy.
+
+Kontrakt komunikatów (typy i pola) jest opisany w Backend/README.md.
+"""
+
 import asyncio
 import json
 import secrets
@@ -6,8 +11,8 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
-from starlette.websockets import WebSocketState
 from sqlmodel import Session
+from starlette.websockets import WebSocketState
 
 from app.auth.deps import get_optional_user, user_from_token
 from app.config import get_settings
@@ -131,7 +136,7 @@ class RateLimiter:
 
 
 async def _message_loop(ws: WebSocket, handle: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
-    """Read {"type", "data"} messages until disconnect; report bad input back to the client."""
+    """Czyta komunikaty {"type", "data"} do rozłączenia; błędne odrzuca z komunikatem error."""
     limiter = RateLimiter()
     while True:
         try:

@@ -43,7 +43,10 @@ class TokenResponse(BaseModel):
 
 
 def _token_response(user: User) -> TokenResponse:
-    return TokenResponse(access_token=create_access_token(user.id), user=UserOut.model_validate(user, from_attributes=True))
+    return TokenResponse(
+        access_token=create_access_token(user.id),
+        user=UserOut.model_validate(user, from_attributes=True),
+    )
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
