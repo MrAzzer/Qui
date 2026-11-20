@@ -61,6 +61,11 @@ Każda wiadomość: `{ "type": "...", "data": { ... } }`.
 Kody zamknięcia: `4400` zły nick / gra już trwa / party pełne, `4401` zły token hosta, `4403` wyrzucony,
 `4404` brak party, `4408` party wygasło (sprzątanie), `4409` to samo konto połączyło się z innego urządzenia.
 
+**Walidacja:** wiadomość maks. 2 KB (większa → `error`), maks. ok. 5 wiadomości/s z chwilowym zapasem 15
+(nadmiar → `error` „Too many messages”), błędny format lub nieznany `type` → `error`, połączenie zostaje otwarte.
+Nick: usuwane są znaki sterujące i niewidoczne (np. zero-width space) oraz podwójne spacje; porównanie bez wielkości liter.
+Na Renderze uvicorn odrzuca ramki WebSocket powyżej 64 KB (`--ws-max-size`).
+
 **Powrót po rozłączeniu:** po ponownym połączeniu (`reconnect_token` albo `access_token`) gracz dostaje bieżący ekran:
 otwarte pytanie (albo `answer_ack`, jeśli już odpowiedział), swój `reveal` lub `game_over`. Host — to samo.
 

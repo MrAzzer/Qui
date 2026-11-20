@@ -8,7 +8,8 @@ services:
     rootDir: Backend
     buildCommand: pip install -r requirements.txt
     # Jedna instancja: party są trzymane w pamięci procesu.
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    # --ws-max-size: odrzuca ogromne ramki WebSocket już na poziomie serwera (domyślnie 16 MB)
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*' --ws-max-size 65536
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION

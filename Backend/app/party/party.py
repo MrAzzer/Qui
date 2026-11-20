@@ -4,6 +4,7 @@ import asyncio
 import logging
 import secrets
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -37,6 +38,13 @@ class PartyError(Exception):
 
 def message(type_: str, **data: Any) -> Dict[str, Any]:
     return {"type": type_, "data": data}
+
+
+def clean_nick(raw: str) -> str:
+    """Usuwa znaki sterujące i niewidoczne (np. zero-width) oraz zbędne spacje."""
+    visible = "".join(ch for ch in unicodedata.normalize("NFC", raw)
+                      if unicodedata.category(ch) not in ("Cc", "Cf", "Co", "Cs"))
+    return " ".join(visible.split())
 
 
 @dataclass
@@ -206,7 +214,7 @@ class Party:
                 if p.user_id == user_id:
                     return p
 
-        nick = nick.strip()
+        nick = clean_nick(nick)
         if not nick:
             raise PartyError("Nick is required")
         if len(nick) > self.max_nick_length:
@@ -215,7 +223,7 @@ class Party:
             raise PartyError("Game already started")
         if len(self.players) >= self.max_players:
             raise PartyError("Party is full")
-        if any(p.nick.lower() == nick.lower() for p in self.players.values()):
+        if any(p.nick.casefold() == nick.casefold() for p in self.players.values()):
             raise PartyError("Nick already taken")
 
         player = Player(id=secrets.token_hex(4), nick=nick, reconnect_token=secrets.token_urlsafe(16), user_id=user_id)

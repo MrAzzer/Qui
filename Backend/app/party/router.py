@@ -1,6 +1,7 @@
 import asyncio
 import json
 import secrets
+import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -106,8 +107,32 @@ async def _reject(ws: WebSocket, code: int, reason: str) -> None:
     await ws.close(code=code, reason=reason)
 
 
+MAX_MESSAGE_BYTES = 2048  # największa poprawna wiadomość (answer) ma ~100 bajtów
+RATE_LIMIT_PER_SECOND = 5  # średnio
+RATE_LIMIT_BURST = 15  # chwilowo
+
+
+class RateLimiter:
+    """Token bucket: ile wiadomości klient może wysłać (chroni przed zalewaniem serwera)."""
+
+    def __init__(self, rate: float = RATE_LIMIT_PER_SECOND, burst: float = RATE_LIMIT_BURST) -> None:
+        self.rate, self.burst = rate, burst
+        self.tokens = burst
+        self.updated = time.monotonic()
+
+    def allow(self) -> bool:
+        now = time.monotonic()
+        self.tokens = min(self.burst, self.tokens + (now - self.updated) * self.rate)
+        self.updated = now
+        if self.tokens < 1:
+            return False
+        self.tokens -= 1
+        return True
+
+
 async def _message_loop(ws: WebSocket, handle: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
     """Read {"type", "data"} messages until disconnect; report bad input back to the client."""
+    limiter = RateLimiter()
     while True:
         try:
             raw = await ws.receive_text()
@@ -116,6 +141,12 @@ async def _message_loop(ws: WebSocket, handle: Callable[[str, Dict[str, Any]], A
             if ws.application_state == WebSocketState.DISCONNECTED:
                 return
             raise
+        if len(raw.encode()) > MAX_MESSAGE_BYTES:
+            await ws.send_json(message("error", message=f"Message too large (max {MAX_MESSAGE_BYTES} bytes)"))
+            continue
+        if not limiter.allow():
+            await ws.send_json(message("error", message="Too many messages, slow down"))
+            continue
         try:
             msg = json.loads(raw)
             type_ = msg["type"]
