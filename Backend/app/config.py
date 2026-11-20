@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     max_players: int = 50
     max_nick_length: int = 20
 
+    # Baza: SQLite lokalnie, PostgreSQL na produkcji (np. postgresql://user:pass@host/db z Neon)
+    database_url: str = "sqlite:///./qui.db"
+
+    # Logowanie (JWT). Pusty klucz = losowy przy starcie, tokeny przestają działać po restarcie.
+    secret_key: str = ""
+    access_token_expire_minutes: int = 60 * 24 * 7
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

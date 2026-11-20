@@ -21,7 +21,7 @@ przez IP laptopa (`ipconfig getifaddr en0` na macOS), np. `ws://192.168.1.20:800
 
 | Metoda | Ścieżka | Odpowiedź |
 |---|---|---|
-| `POST` | `/api/parties` | `201 { code, host_token, join_url }` — na razie zawsze z przykładowym quizem |
+| `POST` | `/api/parties` | `201 { code, host_token, join_url }`. Body `{ quiz_id }` opcjonalne (bez niego przykładowy quiz). Token logowania opcjonalny — z nim gra trafia do historii hosta |
 | `GET` | `/api/parties/{code}` | `{ code, state, joinable, player_count, question_count }` lub `404` |
 
 ## WebSocket
@@ -29,6 +29,7 @@ przez IP laptopa (`ipconfig getifaddr en0` na macOS), np. `ws://192.168.1.20:800
 - Host: `ws://<backend>/ws/party/{code}/host?token=<host_token>`
 - Gracz: `ws://<backend>/ws/party/{code}/player?nick=<nick>`
 - Gracz po zerwaniu połączenia: `ws://<backend>/ws/party/{code}/player?reconnect_token=<token>` — zachowuje punkty
+- Zalogowany gracz: dodaj `&access_token=<token z logowania>` — wynik trafi do jego historii i powtórek. Z tym samym tokenem wraca na swoje miejsce także z innego urządzenia. Zły token → `error` + zamknięcie `4401`
 
 Każda wiadomość: `{ "type": "...", "data": { ... } }`.
 
@@ -64,8 +65,8 @@ Kody zamknięcia: `4400` zły nick / gra już trwa / party pełne, `4401` zły t
 
 | Metoda | Ścieżka | Body | Odpowiedź |
 |---|---|---|---|
-| `POST` | `/api/quizzes/generate` | `{ text, count=5 (1–20), difficulty="medium" (easy/medium/hard), time_limit=20 }` | `201 { id, questions: [Question] }`, `422` złe dane, `502` AI nie dało poprawnego quizu |
-| `GET` | `/api/quizzes/{id}` | — | `{ id, questions }` lub `404` |
+| `POST` | `/api/quizzes/generate` 🔒 | `{ text, count=5 (1–20), difficulty="medium" (easy/medium/hard), time_limit=20, title? }` | `201 { id, title, questions: [Question] }`, `401` niezalogowany, `422` złe dane, `502` AI nie dało poprawnego quizu |
+| `GET` | `/api/quizzes/{id}` | — | `{ id, title, questions }` lub `404` |
 | `POST` | `/api/parties` | `{ quiz_id }` | party z wygenerowanym quizem (bez `quiz_id` → przykładowy quiz z `sample.py`) |
 
 Pytanie = `app/quiz/schemas.py::Question`: `{ id, text, choices[2..4], correct, explanation, hint, time_limit }`.
@@ -73,7 +74,118 @@ Pytanie = `app/quiz/schemas.py::Question`: `{ id, text, choices[2..4], correct, 
 Jak to działa (`app/quiz/generator.py::generate_questions`): tekst → prompt (`prompts.py`) → LLM →
 walidacja Pydantic (`ai_schemas.py::AIQuiz`: 4 różne odpowiedzi, `correct_index` 0–3, bez duplikatów,
 dokładnie `count` pytań) → losowanie kolejności odpowiedzi → `Question`. Zły JSON od modelu jest
-ponawiany (`LLM_MAX_ATTEMPTS`, domyślnie 3). Quizy są na razie w pamięci (`store.py`), w T5 → SQLite.
+ponawiany (`LLM_MAX_ATTEMPTS`, domyślnie 3). Quizy zapisują się w bazie (`store.py`) razem z materiałem i właścicielem.
 
 Dostawca AI: dowolne API zgodne z OpenAI, ustawiane w `.env` (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`,
 `LLM_RESPONSE_FORMAT`) — domyślnie GroqCloud `openai/gpt-oss-120b`, przykład dla NVIDIA w `.env.example`.
+
+## Logowanie i użytkownicy
+
+🔒 = wymaga nagłówka `Authorization: Bearer <access_token>`.
+
+| Metoda | Ścieżka | Body | Odpowiedź |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | JSON `{ email, password (8–128), display_name (1–40) }` | `201 { access_token, token_type, user }`, `409` email zajęty, `422` złe dane |
+| `POST` | `/api/auth/login` | **formularz** (`application/x-www-form-urlencoded`): `username=<email>&password=<hasło>` | `{ access_token, token_type, user }`, `401` zły email lub hasło |
+| `GET` | `/api/auth/me` 🔒 | — | `{ id, email, display_name, created_at }` |
+| `GET` | `/api/users/me/quizzes` 🔒 | — | moje quizy: `[{ id, title, difficulty, question_count, created_at }]` |
+| `GET` | `/api/users/me/games?limit=20` 🔒 | — | gry, w których grałem: `[{ session_id, quiz_id, quiz_title, played_at, nick, score, rank, player_count, correct_count, question_count }]` |
+| `GET` | `/api/users/me/review?limit=20` 🔒 | — | do powtórki — pytania, na które odpowiedziałem źle: `[{ quiz_id, quiz_title, question, correct_answer, your_answer, explanation, hint, times_wrong }]` |
+
+- Token ważny 7 dni (`ACCESS_TOKEN_EXPIRE_MINUTES`). Frontend trzyma go np. w `localStorage` i dokleja do zapytań.
+- Granie dalej działa **bez konta** (sam nick przez QR). Konto daje historię i powtórki; generowanie quizu wymaga konta, żeby nikt obcy nie zużywał limitu klucza AI.
+- W `/docs` kliknij **Authorize**, wpisz email jako `username` i hasło — Swagger sam doklei token.
+
+Przykład dla frontendu:
+
+```js
+const res = await fetch(`${API_URL}/api/auth/login`, {
+  method: "POST",
+  body: new URLSearchParams({ username: email, password }),
+});
+const { access_token, user } = await res.json();
+await fetch(`${API_URL}/api/quizzes/generate`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${access_token}` },
+  body: JSON.stringify({ text, count: 5 }),
+});
+```
+
+## Baza danych
+
+SQLModel (SQLAlchemy). Lokalnie plik SQLite `qui.db`, na produkcji PostgreSQL przez `DATABASE_URL`. Tabele tworzą się
+same przy starcie serwera (`app/models.py`).
+
+```mermaid
+erDiagram
+    users ||--o{ quizzes : "tworzy"
+    quizzes ||--|{ quiz_questions : "ma"
+    quizzes ||--o{ game_sessions : "rozgrywany w"
+    users |o--o{ game_sessions : "hostuje"
+    game_sessions ||--|{ game_results : "wyniki"
+    users |o--o{ game_results : "gra (pusty = gość)"
+    game_results ||--|{ game_answers : "odpowiedzi"
+
+    users {
+        int id PK
+        string email UK
+        string display_name
+        string password_hash "argon2"
+        datetime created_at
+    }
+    quizzes {
+        string id PK "losowy, jak w /api/quizzes/id"
+        int owner_id FK
+        string title
+        string difficulty
+        text source_text "materiał z zajęć"
+        datetime created_at
+    }
+    quiz_questions {
+        int id PK
+        string quiz_id FK
+        int position "UK z quiz_id; w grze id = q+position"
+        text text
+        json choices
+        int correct
+        text explanation
+        text hint
+    }
+    game_sessions {
+        int id PK
+        string code
+        string quiz_id FK "pusty = przykładowy quiz"
+        int host_id FK "pusty = host gość"
+        int question_count
+        int player_count
+        datetime started_at
+        datetime finished_at
+    }
+    game_results {
+        int id PK
+        int session_id FK
+        int user_id FK "pusty = gość"
+        string nick
+        int score
+        int rank
+        int correct_count
+    }
+    game_answers {
+        int id PK
+        int result_id FK
+        int question_position
+        int choice "pusty = brak odpowiedzi"
+        bool is_correct
+        int points
+        int elapsed_ms
+    }
+```
+
+- Trwające gry (party) dalej żyją w pamięci serwera. Do bazy zapisuje się gra **po zakończeniu**: sesja, wynik
+  każdego gracza i każda odpowiedź — z tego powstaje historia i lista powtórek.
+- **Produkcja:** darmowy dysk Render jest kasowany przy każdym deployu, restarcie i uśpieniu, więc SQLite tam nie
+  przetrwa, a darmowy PostgreSQL na Render jest usuwany po 30 dniach. Używamy zewnętrznej bazy (np. Neon) i ustawiamy
+  `DATABASE_URL` w panelu Render. `postgres://` i `postgresql://` są obsługiwane.
+- **Zmiany schematu:** `create_all` tylko dodaje brakujące tabele, nie zmienia istniejących. Dopóki nie mamy danych do
+  zachowania, przy zmianie kolumn wystarczy wyczyścić bazę; potem trzeba dodać migracje (Alembic).
+

@@ -18,6 +18,7 @@ from app.quiz.generator import (
 )
 from app.quiz.router import get_generator
 from app.quiz.schemas import Question
+from tests.conftest import auth_header, register
 
 MATERIAL = "Fotosynteza to proces, w którym rośliny wytwarzają glukozę z CO2 i wody."
 SETTINGS = Settings(_env_file=None, llm_api_key="test", llm_max_attempts=3)
@@ -150,9 +151,15 @@ def fake_generator(text, count, difficulty, time_limit):
                               client=FakeClient([ai_json(count)]), settings=SETTINGS)
 
 
-def test_generate_endpoint_and_party_from_quiz(api):
+@pytest.fixture
+def headers(api):
+    # generowanie wymaga zalogowania
+    return auth_header(register(api)["access_token"])
+
+
+def test_generate_endpoint_and_party_from_quiz(api, headers):
     app.dependency_overrides[get_generator] = lambda: fake_generator
-    r = api.post("/api/quizzes/generate", json={"text": MATERIAL, "count": 3, "difficulty": "easy"})
+    r = api.post("/api/quizzes/generate", json={"text": MATERIAL, "count": 3, "difficulty": "easy"}, headers=headers)
     assert r.status_code == 201
     quiz = r.json()
     assert len(quiz["questions"]) == 3
@@ -174,16 +181,16 @@ def test_party_without_quiz_uses_sample(api):
     assert api.post("/api/parties").status_code == 201
 
 
-def test_generate_endpoint_validates_input(api):
-    r = api.post("/api/quizzes/generate", json={"text": "krótko", "count": 50})
+def test_generate_endpoint_validates_input(api, headers):
+    r = api.post("/api/quizzes/generate", json={"text": "krótko", "count": 50}, headers=headers)
     assert r.status_code == 422
 
 
-def test_generate_endpoint_maps_ai_failure_to_502(api):
+def test_generate_endpoint_maps_ai_failure_to_502(api, headers):
     def failing(*args):
         raise QuizGenerationError("limit wyczerpany")
 
     app.dependency_overrides[get_generator] = lambda: failing
-    r = api.post("/api/quizzes/generate", json={"text": MATERIAL})
+    r = api.post("/api/quizzes/generate", json={"text": MATERIAL}, headers=headers)
     assert r.status_code == 502
     assert "limit" in r.json()["detail"]

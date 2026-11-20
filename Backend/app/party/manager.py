@@ -1,5 +1,5 @@
 import secrets
-from typing import Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional
 
 from app.config import get_settings
 from app.party.party import Party
@@ -12,7 +12,14 @@ class PartyManager:
     def __init__(self) -> None:
         self._parties: Dict[str, Party] = {}
 
-    def create(self, questions: List[Question]) -> Party:
+    def create(
+        self,
+        questions: List[Question],
+        *,
+        quiz_id: Optional[str] = None,
+        host_user_id: Optional[int] = None,
+        on_finish: Optional[Callable[[Party], Awaitable[None]]] = None,
+    ) -> Party:
         settings = get_settings()
         code = self._new_code()
         party = Party(
@@ -21,6 +28,9 @@ class PartyManager:
             questions=questions,
             max_players=settings.max_players,
             max_nick_length=settings.max_nick_length,
+            quiz_id=quiz_id,
+            host_user_id=host_user_id,
+            on_finish=on_finish,
         )
         self._parties[code] = party
         return party

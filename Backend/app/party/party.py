@@ -5,8 +5,9 @@ import logging
 import secrets
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import WebSocket
 
@@ -52,6 +53,7 @@ class Player:
     ws: Optional[WebSocket] = None
     score: int = 0
     streak: int = 0
+    user_id: Optional[int] = None  # None = gość bez konta
 
     @property
     def connected(self) -> bool:
@@ -68,12 +70,17 @@ class Party:
     questions: List[Question]
     max_players: int = 50
     max_nick_length: int = 20
+    quiz_id: Optional[str] = None  # None = przykładowy quiz
+    host_user_id: Optional[int] = None
+    # Wołane po końcu gry (zapis wyników do bazy); party nie wie nic o bazie
+    on_finish: Optional[Callable[[Party], Awaitable[None]]] = None
 
     state: PartyState = PartyState.LOBBY
     players: Dict[str, Player] = field(default_factory=dict)
     host_ws: Optional[WebSocket] = None
     current_index: int = -1
     question_started_at: float = 0.0
+    started_at: Optional[datetime] = None
     answers: Dict[str, Answer] = field(default_factory=dict)  # answers to the current question
     history: List[Dict[str, Answer]] = field(default_factory=list)  # answers to finished questions
     _timer: Optional[asyncio.Task] = None
@@ -140,13 +147,18 @@ class Party:
         if self.host_ws is ws:
             self.host_ws = None
 
-    def join(self, nick: str, reconnect_token: Optional[str]) -> Player:
-        """Find the player for a reconnect token, or register a new one."""
+    def join(self, nick: str, reconnect_token: Optional[str], user_id: Optional[int] = None) -> Player:
+        """Find the player for a reconnect token (or logged-in user), or register a new one."""
         if reconnect_token:
             for p in self.players.values():
                 if secrets.compare_digest(p.reconnect_token, reconnect_token):
                     return p
             raise PartyError("Invalid reconnect token")
+        if user_id is not None:
+            # zalogowany gracz wraca na swoje miejsce także bez reconnect_token (np. z innego urządzenia)
+            for p in self.players.values():
+                if p.user_id == user_id:
+                    return p
 
         nick = nick.strip()
         if not nick:
@@ -160,7 +172,7 @@ class Party:
         if any(p.nick.lower() == nick.lower() for p in self.players.values()):
             raise PartyError("Nick already taken")
 
-        player = Player(id=secrets.token_hex(4), nick=nick, reconnect_token=secrets.token_urlsafe(16))
+        player = Player(id=secrets.token_hex(4), nick=nick, reconnect_token=secrets.token_urlsafe(16), user_id=user_id)
         self.players[player.id] = player
         return player
 
@@ -213,6 +225,7 @@ class Party:
             raise PartyError("Game already started")
         if not self.players:
             raise PartyError("Need at least one player")
+        self.started_at = datetime.now(timezone.utc)
         await self._next_question()
 
     async def next(self) -> None:
@@ -339,6 +352,11 @@ class Party:
             leaderboard=leaderboard,
             weakest_questions=self._weakest_questions(),
         ))
+        if self.on_finish is not None:
+            try:
+                await self.on_finish(self)
+            except Exception:  # błąd zapisu nie może zepsuć gry, która już się skończyła
+                log.exception("Saving results of party %s failed", self.code)
 
     def _weakest_questions(self, limit: int = 3) -> List[Dict[str, Any]]:
         stats = []
