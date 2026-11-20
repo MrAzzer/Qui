@@ -6,9 +6,9 @@ from typing import Awaitable, Callable, Dict, List, Optional
 
 from app.config import get_settings
 from app.party.party import CLOSE_EXPIRED, Party
+from app.quiz.schemas import Question
 
 log = logging.getLogger(__name__)
-from app.quiz.schemas import Question
 
 
 class PartyManager:

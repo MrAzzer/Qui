@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from typing import List
 
@@ -5,7 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # QUI_ENV_FILE="" wyłącza czytanie .env (testy nie mogą zależeć od lokalnego pliku dewelopera)
+    model_config = SettingsConfigDict(env_file=os.environ.get("QUI_ENV_FILE", ".env") or None, extra="ignore")
 
     # Dostawca AI: dowolne API zgodne z OpenAI. Domyślnie GroqCloud.
     # NVIDIA: LLM_BASE_URL=https://integrate.api.nvidia.com/v1, LLM_MODEL=<model>,
