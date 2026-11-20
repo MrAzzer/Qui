@@ -43,7 +43,9 @@ class Material(SQLModel, table=True):
     id: str = Field(default_factory=new_public_id, primary_key=True, max_length=32)
     owner_id: int = Field(foreign_key="users.id", index=True)
     filename: str = Field(max_length=255)
+    content_type: str = Field(default="application/octet-stream", max_length=100)
     size_bytes: int
+    storage_key: Optional[str] = Field(default=None, max_length=300)  # plik w S3; None = zapisany tylko tekst
     text: str = Field(sa_column=Column(Text, nullable=False))
     created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
 

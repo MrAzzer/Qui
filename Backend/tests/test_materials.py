@@ -1,6 +1,7 @@
 import pytest
 
 from app.materials.extract import MAX_FILE_BYTES
+from app.materials.storage import get_storage
 from app.quiz.router import get_generator
 from app.quiz.sample import get_sample_questions
 from tests.conftest import auth_header, register
@@ -69,3 +70,39 @@ def test_generate_quiz_from_material(client, auth_headers):
 @pytest.mark.parametrize("body", [{}, {"text": NOTES * 2, "material_id": "x"}])
 def test_generate_needs_exactly_one_source(client, auth_headers, body):
     assert client.post("/api/quizzes/generate", headers=auth_headers, json=body).status_code == 422
+
+
+# --- pliki w magazynie (S3): każdy użytkownik ma własny katalog ---------------
+
+def test_file_saved_in_users_own_folder(client, auth_headers, storage):
+    m = upload(client, auth_headers, name="Notatki z biologii.txt").json()
+    assert m["has_file"] is True
+    user_id = client.get("/api/auth/me", headers=auth_headers).json()["id"]
+    [key] = storage.files
+    assert key == f"users/{user_id}/materials/{m['id']}/Notatki_z_biologii.txt"
+    assert storage.files[key] == NOTES.encode()
+
+
+def test_download_link_only_for_owner(client, auth_headers):
+    m = upload(client, auth_headers).json()
+    res = client.get(f"/api/materials/{m['id']}/download", headers=auth_headers)
+    assert res.status_code == 200 and res.json()["url"].startswith("memory://users/")
+    other = auth_header(register(client, email="ola@example.com", name="Ola")["access_token"])
+    assert client.get(f"/api/materials/{m['id']}/download", headers=other).status_code == 404
+
+
+def test_delete_material_removes_file_but_keeps_quiz(client, auth_headers, storage):
+    client.app.dependency_overrides[get_generator] = lambda: (lambda *a: get_sample_questions()[:2])
+    m = upload(client, auth_headers).json()
+    quiz = client.post("/api/quizzes/generate", headers=auth_headers, json={"material_id": m["id"], "count": 2}).json()
+    assert client.delete(f"/api/materials/{m['id']}", headers=auth_headers).status_code == 204
+    assert storage.files == {}
+    assert client.get(f"/api/materials/{m['id']}", headers=auth_headers).status_code == 404
+    assert client.get(f"/api/quizzes/{quiz['id']}").status_code == 200
+
+
+def test_without_bucket_only_text_is_saved(client, auth_headers):
+    client.app.dependency_overrides[get_storage] = lambda: None
+    m = upload(client, auth_headers).json()
+    assert m["has_file"] is False and m["char_count"] == len(NOTES)
+    assert client.get(f"/api/materials/{m['id']}/download", headers=auth_headers).status_code == 404

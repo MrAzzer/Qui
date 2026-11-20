@@ -86,8 +86,12 @@ Dostawca AI: dowolne API zgodne z OpenAI, ustawiane w `.env` (`LLM_BASE_URL`, `L
 | `POST` | `/api/materials` 🔒 | `multipart/form-data`, pole `file` (`.txt`, `.md`; maks. 5 MB) | `201 { id, filename, size_bytes, char_count, preview, created_at }`, `413` za duży, `422` zły format / pusty |
 | `GET` | `/api/materials` 🔒 | — | moje materiały (jak wyżej) |
 | `GET` | `/api/materials/{id}` 🔒 | — | jeden materiał; cudzy → `404` |
+| `GET` | `/api/materials/{id}/download` 🔒 | — | `{ url, expires_in }` — link do oryginalnego pliku, ważny 10 min; cudzy → `404` |
+| `DELETE` | `/api/materials/{id}` 🔒 | — | `204`; usuwa materiał i plik, quizy z niego zostają |
 
-Tekst jest wyciągany od razu przy wgraniu i zapisywany w bazie (sam plik nie). Kodowanie: UTF-8 albo Windows-1250.
+Tekst jest wyciągany od razu przy wgraniu i zapisywany w bazie, a oryginalny plik trafia do Neon Storage (S3)
+do katalogu właściciela: `users/<user_id>/materials/<material_id>/<plik>`. Każdy widzi i pobiera tylko swoje pliki.
+Bez `S3_BUCKET` zapisuje się sam tekst (`has_file: false`). Kodowanie: UTF-8 albo Windows-1250.
 Nowy format = jedna funkcja w `app/materials/extract.py::EXTRACTORS` (PDF i DOCX — moduł AI).
 Quiz z materiału: `POST /api/quizzes/generate` z `{ "material_id": "..." }`; tytuł domyślnie = nazwa pliku.
 
@@ -151,7 +155,9 @@ erDiagram
         string id PK "losowy"
         int owner_id FK
         string filename
+        string content_type
         int size_bytes
+        string storage_key "plik w S3: users/id/..."
         text text "wyciągnięty tekst"
         datetime created_at
     }
@@ -206,9 +212,10 @@ erDiagram
 
 - Trwające gry (party) dalej żyją w pamięci serwera. Do bazy zapisuje się gra **po zakończeniu**: sesja, wynik
   każdego gracza i każda odpowiedź — z tego powstaje historia i lista powtórek.
-- **Produkcja:** darmowy dysk Render jest kasowany przy każdym deployu, restarcie i uśpieniu, więc SQLite tam nie
-  przetrwa, a darmowy PostgreSQL na Render jest usuwany po 30 dniach. Używamy zewnętrznej bazy (np. Neon) i ustawiamy
-  `DATABASE_URL` w panelu Render. `postgres://` i `postgresql://` są obsługiwane.
+- **Produkcja: Neon.** Darmowy dysk Render jest kasowany przy każdym deployu, restarcie i uśpieniu (SQLite tam nie
+  przetrwa), a darmowy PostgreSQL na Render jest usuwany po 30 dniach. Dlatego baza i pliki są w Neon:
+  `DATABASE_URL` (adres **bez** `-pooler` — backend ma własną pulę połączeń) i `S3_BUCKET` + `AWS_*` w panelu Render.
+  Neon usypia bazę po kilku minutach bez ruchu; pierwsze zapytanie po przerwie trwa ok. 1–4 s.
 - **Zmiany schematu:** `create_all` tylko dodaje brakujące tabele, nie zmienia istniejących. Dopóki nie mamy danych do
   zachowania, przy zmianie kolumn wystarczy wyczyścić bazę; potem trzeba dodać migracje (Alembic).
 
