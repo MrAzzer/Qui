@@ -91,6 +91,28 @@ ponawiany (`LLM_MAX_ATTEMPTS`, domyślnie 3). Quizy zapisują się w bazie (`sto
 Dostawca AI: dowolne API zgodne z OpenAI, ustawiane w `.env` (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`,
 `LLM_RESPONSE_FORMAT`) — domyślnie GroqCloud `openai/gpt-oss-120b`, przykład dla NVIDIA w `.env.example`.
 
+## Test obciążeniowy
+
+`scripts/load_test.py` tworzy party, łączy hosta i N graczy naraz i rozgrywa całą grę (losowe odpowiedzi):
+
+```bash
+python scripts/load_test.py --url http://localhost:8000 --players 50   # serwer z MAX_PLAYERS >= 50
+```
+
+Wyniki lokalnie (MacBook, 50 graczy, 3 pytania; ms):
+
+| | przed optymalizacją | po |
+|---|---|---|
+| dołączenie (p95) | 21 | 17 |
+| pytanie dociera do gracza (p95) | 11–81 | 10–13 |
+| odsłonięcie po ostatniej odpowiedzi (p95) | 7–31 | 8–16 |
+| ruch w lobby | 1966 wiadomości, 3,5 MB | 105 wiadomości, 187 KB |
+| ruch w całej grze | 2573 wiadomości, 3,7 MB | 712 wiadomości, 400 KB |
+
+Optymalizacja: lista graczy (`lobby_update`) rozsyłana najwyżej co 250 ms zamiast po każdym dołączeniu
+(wcześniej ruch rósł z kwadratem liczby graczy) i JSON serializowany raz na rozgłoszenie.
+Przy 100 graczach: pytanie p95 11 ms, cała gra 1,1 MB.
+
 ## Materiały
 
 | Metoda | Ścieżka | Body | Odpowiedź |

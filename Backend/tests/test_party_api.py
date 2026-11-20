@@ -65,3 +65,22 @@ def test_player_limit_cannot_exceed_server_limit(client):
     too_many = get_settings().max_players + 1
     assert client.post("/api/parties", json={"max_players": too_many}).status_code == 422
     assert client.post("/api/parties", json={"max_players": 0}).status_code == 422
+
+
+def test_lobby_updates_are_batched_when_many_players_join(client):
+    """Optymalizacja T7: 20 szybkich dołączeń ≠ 20 rozesłanych list graczy."""
+    party = client.post("/api/parties").json()
+    code = party["code"]
+    with ExitStack() as stack:
+        host = stack.enter_context(client.websocket_connect(f"/ws/party/{code}/host?token={party['host_token']}"))
+        for i in range(20):
+            ws = stack.enter_context(client.websocket_connect(f"/ws/party/{code}/player?nick=Gracz{i}"))
+            assert ws.receive_json()["type"] == "joined"
+        updates = 0
+        while True:
+            msg = host.receive_json()
+            if msg["type"] == "lobby_update":
+                updates += 1
+                if len(msg["data"]["players"]) == 20:  # ostatnia aktualizacja ma wszystkich
+                    break
+        assert updates <= 5

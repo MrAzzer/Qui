@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 import time
@@ -22,6 +23,10 @@ CLOSE_UNAUTHORIZED = 4401
 CLOSE_KICKED = 4403
 CLOSE_NOT_FOUND = 4404
 CLOSE_EXPIRED = 4408  # party usunięte przez sprzątanie
+
+# Lista graczy jest rozsyłana najwyżej raz na tyle sekund (pierwsza zmiana od razu, kolejne zbierane).
+# Bez tego dołączanie 50 graczy to ~2000 wiadomości i ~3,5 MB ruchu.
+LOBBY_UPDATE_INTERVAL = 0.25
 CLOSE_REPLACED = 4409
 
 
@@ -103,6 +108,8 @@ class Party:
     created_at: float = field(default_factory=time.monotonic)
     idle_since: Optional[float] = field(default_factory=time.monotonic)
     finished_at: Optional[float] = None
+    _lobby_sent_at: float = 0.0
+    _lobby_pending: Optional[asyncio.Task] = None
 
     # ---------- helpers ----------
 
@@ -158,24 +165,46 @@ class Party:
             "host_connected": self.host_ws is not None,
         }
 
-    async def _send(self, ws: Optional[WebSocket], msg: Dict[str, Any]) -> None:
+    async def _send_text(self, ws: Optional[WebSocket], text: str) -> None:
         if ws is None:
             return
         try:
-            await ws.send_json(msg)
+            await ws.send_text(text)
         except Exception:  # client vanished mid-send; its own handler will clean up
             log.debug("send failed", exc_info=True)
+
+    async def _send(self, ws: Optional[WebSocket], msg: Dict[str, Any]) -> None:
+        await self._send_text(ws, json.dumps(msg))
 
     async def send_host(self, msg: Dict[str, Any]) -> None:
         await self._send(self.host_ws, msg)
 
     async def broadcast_players(self, msg: Dict[str, Any]) -> None:
-        await asyncio.gather(*(self._send(p.ws, msg) for p in self.players.values()))
+        text = json.dumps(msg)  # serializacja raz, nie dla każdego telefonu osobno
+        await asyncio.gather(*(self._send_text(p.ws, text) for p in self.players.values()))
 
     async def broadcast(self, msg: Dict[str, Any]) -> None:
-        await asyncio.gather(self.send_host(msg), self.broadcast_players(msg))
+        text = json.dumps(msg)
+        sockets = [self.host_ws] + [p.ws for p in self.players.values()]
+        await asyncio.gather(*(self._send_text(ws, text) for ws in sockets))
 
     async def broadcast_lobby(self) -> None:
+        """Rozsyła listę graczy: od razu, a gdy zmiany są częste — najwyżej raz na LOBBY_UPDATE_INTERVAL."""
+        if self._lobby_pending is not None:
+            return  # już zaplanowane, wyśle najświeższy stan
+        wait = self._lobby_sent_at + LOBBY_UPDATE_INTERVAL - time.monotonic()
+        if wait <= 0:
+            await self._send_lobby_now()
+        else:
+            self._lobby_pending = asyncio.create_task(self._send_lobby_later(wait))
+
+    async def _send_lobby_later(self, wait: float) -> None:
+        await asyncio.sleep(wait)
+        self._lobby_pending = None
+        await self._send_lobby_now()
+
+    async def _send_lobby_now(self) -> None:
+        self._lobby_sent_at = time.monotonic()
         await self.broadcast(message("lobby_update", players=[p.public() for p in self.players.values()]))
 
     # ---------- connections ----------
@@ -467,6 +496,8 @@ class Party:
         return [{k: s[k] for k in keys} for s in ranked[:limit]]
 
     def cancel_timer(self) -> None:
-        if self._timer is not None:
-            self._timer.cancel()
-            self._timer = None
+        for task in (self._timer, self._lobby_pending):
+            if task is not None:
+                task.cancel()
+        self._timer = None
+        self._lobby_pending = None
