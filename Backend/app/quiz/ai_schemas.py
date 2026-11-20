@@ -5,7 +5,7 @@ z tymi modelami, jest odrzucana (i ponawiana w generatorze).
 """
 
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -83,8 +83,10 @@ class GenerateQuizRequest(BaseModel):
     count: int = Field(default=5, ge=MIN_COUNT, le=MAX_COUNT)
     difficulty: Difficulty = Difficulty.medium
     time_limit: int = Field(default=20, ge=5, le=120)
+    title: Optional[str] = Field(default=None, max_length=120)  # brak = pierwsza linia materiału
 
 
 class QuizResponse(BaseModel):
     id: str
+    title: str = ""
     questions: List[Question]

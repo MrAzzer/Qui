@@ -1,11 +1,16 @@
+import asyncio
 import json
 import secrets
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+from sqlmodel import Session
 
+from app.auth.deps import get_optional_user, user_from_token
 from app.config import get_settings
+from app.db import get_session, session_scope
+from app.models import User
 from app.party.manager import manager
 from app.party.party import (
     CLOSE_BAD_REQUEST,
@@ -15,8 +20,9 @@ from app.party.party import (
     PartyError,
     message,
 )
+from app.party.results import save_party_results_async
 from app.quiz.sample import get_sample_questions
-from app.quiz.store import quiz_store
+from app.quiz.store import load_questions
 
 router = APIRouter()
 
@@ -34,14 +40,25 @@ class CreatePartyResponse(BaseModel):
 
 
 @router.post("/api/parties", response_model=CreatePartyResponse, status_code=201)
-async def create_party(body: Optional[CreatePartyRequest] = None) -> CreatePartyResponse:
-    if body is not None and body.quiz_id is not None:
-        questions = quiz_store.get(body.quiz_id)
+def create_party(
+    body: Optional[CreatePartyRequest] = None,
+    host: Optional[User] = Depends(get_optional_user),
+    session: Session = Depends(get_session),
+) -> CreatePartyResponse:
+    """Host może być gościem; zalogowanemu gra zapisuje się w historii."""
+    quiz_id = body.quiz_id if body is not None else None
+    if quiz_id is not None:
+        questions = load_questions(session, quiz_id)
         if questions is None:
             raise HTTPException(404, "Quiz not found")
     else:
         questions = get_sample_questions()
-    party = manager.create(questions)
+    party = manager.create(
+        questions,
+        quiz_id=quiz_id,
+        host_user_id=host.id if host else None,
+        on_finish=save_party_results_async,
+    )
     join_url = f"{get_settings().frontend_url.rstrip('/')}/join/{party.code}"
     return CreatePartyResponse(code=party.code, host_token=party.host_token, join_url=join_url)
 
@@ -108,14 +125,28 @@ async def host_ws(ws: WebSocket, code: str, token: str = "") -> None:
         await party.detach_host(ws)
 
 
+def _user_id_from_token(token: str) -> Optional[int]:
+    with session_scope() as session:
+        user = user_from_token(session, token)
+        return user.id if user else None
+
+
 @router.websocket("/ws/party/{code}/player")
-async def player_ws(ws: WebSocket, code: str, nick: str = "", reconnect_token: str = "") -> None:
+async def player_ws(
+    ws: WebSocket, code: str, nick: str = "", reconnect_token: str = "", access_token: str = ""
+) -> None:
+    """access_token (opcjonalny) = token z logowania; wtedy wynik trafia do historii gracza."""
     await ws.accept()
     party: Optional[Party] = manager.get(code)
     if party is None:
         return await _reject(ws, CLOSE_NOT_FOUND, "Party not found")
+    user_id: Optional[int] = None
+    if access_token:
+        user_id = await asyncio.to_thread(_user_id_from_token, access_token)
+        if user_id is None:
+            return await _reject(ws, CLOSE_UNAUTHORIZED, "Invalid or expired access token")
     try:
-        player = party.join(nick, reconnect_token or None)
+        player = party.join(nick, reconnect_token or None, user_id)
     except PartyError as e:
         return await _reject(ws, CLOSE_BAD_REQUEST, str(e))
 
