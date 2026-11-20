@@ -65,7 +65,7 @@ Kody zamknięcia: `4400` zły nick / gra już trwa / party pełne, `4401` zły t
 
 | Metoda | Ścieżka | Body | Odpowiedź |
 |---|---|---|---|
-| `POST` | `/api/quizzes/generate` 🔒 | `{ text, count=5 (1–20), difficulty="medium" (easy/medium/hard), time_limit=20, title? }` | `201 { id, title, questions: [Question] }`, `401` niezalogowany, `422` złe dane, `502` AI nie dało poprawnego quizu |
+| `POST` | `/api/quizzes/generate` 🔒 | `{ text` **albo** `material_id, count=5 (1–20), difficulty="medium" (easy/medium/hard), time_limit=20, title? }` | `201 { id, title, questions: [Question] }`, `401` niezalogowany, `422` złe dane, `502` AI nie dało poprawnego quizu |
 | `GET` | `/api/quizzes/{id}` | — | `{ id, title, questions }` lub `404` |
 | `POST` | `/api/parties` | `{ quiz_id }` | party z wygenerowanym quizem (bez `quiz_id` → przykładowy quiz z `sample.py`) |
 
@@ -78,6 +78,18 @@ ponawiany (`LLM_MAX_ATTEMPTS`, domyślnie 3). Quizy zapisują się w bazie (`sto
 
 Dostawca AI: dowolne API zgodne z OpenAI, ustawiane w `.env` (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`,
 `LLM_RESPONSE_FORMAT`) — domyślnie GroqCloud `openai/gpt-oss-120b`, przykład dla NVIDIA w `.env.example`.
+
+## Materiały
+
+| Metoda | Ścieżka | Body | Odpowiedź |
+|---|---|---|---|
+| `POST` | `/api/materials` 🔒 | `multipart/form-data`, pole `file` (`.txt`, `.md`; maks. 5 MB) | `201 { id, filename, size_bytes, char_count, preview, created_at }`, `413` za duży, `422` zły format / pusty |
+| `GET` | `/api/materials` 🔒 | — | moje materiały (jak wyżej) |
+| `GET` | `/api/materials/{id}` 🔒 | — | jeden materiał; cudzy → `404` |
+
+Tekst jest wyciągany od razu przy wgraniu i zapisywany w bazie (sam plik nie). Kodowanie: UTF-8 albo Windows-1250.
+Nowy format = jedna funkcja w `app/materials/extract.py::EXTRACTORS` (PDF i DOCX — moduł AI).
+Quiz z materiału: `POST /api/quizzes/generate` z `{ "material_id": "..." }`; tytuł domyślnie = nazwa pliku.
 
 ## Logowanie i użytkownicy
 
@@ -118,6 +130,8 @@ same przy starcie serwera (`app/models.py`).
 
 ```mermaid
 erDiagram
+    users ||--o{ materials : "wgrywa"
+    materials |o--o{ quizzes : "źródło"
     users ||--o{ quizzes : "tworzy"
     quizzes ||--|{ quiz_questions : "ma"
     quizzes ||--o{ game_sessions : "rozgrywany w"
@@ -133,9 +147,18 @@ erDiagram
         string password_hash "argon2"
         datetime created_at
     }
+    materials {
+        string id PK "losowy"
+        int owner_id FK
+        string filename
+        int size_bytes
+        text text "wyciągnięty tekst"
+        datetime created_at
+    }
     quizzes {
         string id PK "losowy, jak w /api/quizzes/id"
         int owner_id FK
+        string material_id FK "pusty = wklejony tekst"
         string title
         string difficulty
         text source_text "materiał z zajęć"

@@ -3,8 +3,9 @@ from sqlmodel import Session
 
 from app.auth.deps import get_current_user
 from app.db import get_session
+from app.materials.router import get_owned_material
 from app.models import Quiz, User
-from app.quiz.ai_schemas import GenerateQuizRequest, QuizResponse
+from app.quiz.ai_schemas import MAX_TEXT_LENGTH, GenerateQuizRequest, QuizResponse
 from app.quiz.generator import QuizGenerationError, generate_questions
 from app.quiz.store import load_questions, make_title, save_quiz
 
@@ -31,10 +32,18 @@ def generate(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> QuizResponse:
+    if body.material_id is not None:
+        material = get_owned_material(session, body.material_id, user)
+        text, filename = material.text, material.filename
+        if len(text) > MAX_TEXT_LENGTH:
+            raise HTTPException(422, f"Materiał ma {len(text)} znaków, maks. {MAX_TEXT_LENGTH} na jeden quiz")
+    else:
+        text, filename = body.text, None
+
     # Funkcja synchroniczna: FastAPI uruchamia ją w puli wątków,
     # więc wolne zapytanie do AI nie blokuje WebSocketów gry.
     try:
-        questions = generator(body.text, body.count, body.difficulty, body.time_limit)
+        questions = generator(text, body.count, body.difficulty, body.time_limit)
     except QuizGenerationError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
@@ -43,9 +52,10 @@ def generate(
         session,
         user.id,
         questions,
-        title=(body.title or "").strip() or make_title(body.text),
+        title=(body.title or "").strip() or make_title(filename or text),
         difficulty=body.difficulty.value,
-        source_text=body.text,
+        source_text=text,
+        material_id=body.material_id,
     )
     return QuizResponse(id=quiz.id, title=quiz.title, questions=load_questions(session, quiz.id))
 

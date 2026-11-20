@@ -1,13 +1,14 @@
 """Tabele bazy danych.
 
-users ──< quizzes ──< quiz_questions
-  │          │
-  │          └──< game_sessions ──< game_results ──< game_answers
+users ──< materials ──< quizzes ──< quiz_questions
+  │                         │
+  │                         └──< game_sessions ──< game_results ──< game_answers
   └──────────────────(host)   (gracz, opcjonalnie)
 
 Gracze mogą grać bez konta (sam nick) — wtedy game_results.user_id jest pusty.
 """
 
+import secrets
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -29,12 +30,30 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
 
 
+def new_public_id() -> str:
+    """Losowy tekstowy id do adresów (/api/quizzes/{id}), trudny do odgadnięcia."""
+    return secrets.token_urlsafe(8)
+
+
+class Material(SQLModel, table=True):
+    """Wgrany plik z materiałem do nauki (zapisujemy wyciągnięty tekst, nie sam plik)."""
+
+    __tablename__ = "materials"
+
+    id: str = Field(default_factory=new_public_id, primary_key=True, max_length=32)
+    owner_id: int = Field(foreign_key="users.id", index=True)
+    filename: str = Field(max_length=255)
+    size_bytes: int
+    text: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
+
+
 class Quiz(SQLModel, table=True):
     __tablename__ = "quizzes"
 
-    # Losowy tekstowy id (jak dotąd w /api/quizzes/{id}), trudny do odgadnięcia
-    id: str = Field(primary_key=True, max_length=32)
+    id: str = Field(default_factory=new_public_id, primary_key=True, max_length=32)
     owner_id: int = Field(foreign_key="users.id", index=True)
+    material_id: Optional[str] = Field(default=None, foreign_key="materials.id", index=True)  # None = wklejony tekst
     title: str = Field(max_length=120)
     difficulty: str = Field(max_length=10)
     source_text: str = Field(sa_column=Column(Text, nullable=False))  # materiał, z którego powstał quiz

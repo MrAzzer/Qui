@@ -1,6 +1,5 @@
 """Zapis i odczyt quizów z bazy (tabele quizzes + quiz_questions)."""
 
-import secrets
 from typing import List, Optional
 
 from sqlmodel import Session, col, select
@@ -22,10 +21,11 @@ def save_quiz(
     title: str,
     difficulty: str,
     source_text: str,
+    material_id: Optional[str] = None,
 ) -> Quiz:
     quiz = Quiz(
-        id=secrets.token_urlsafe(8),
         owner_id=owner_id,
+        material_id=material_id,
         title=title,
         difficulty=difficulty,
         source_text=source_text,

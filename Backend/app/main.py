@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth.router import router as auth_router
 from app.config import get_settings
 from app.db import create_db_and_tables
+from app.materials.router import router as materials_router
 from app.party.router import router as party_router
 from app.quiz.router import router as quiz_router
 from app.users.router import router as users_router
@@ -34,6 +35,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(materials_router)
 app.include_router(party_router)
 app.include_router(quiz_router)
 
