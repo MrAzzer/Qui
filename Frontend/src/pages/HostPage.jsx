@@ -78,7 +78,14 @@ export default function HostPage() {
     setError("");
     setStatus("Tworzę grę… (pierwsze uruchomienie serwera może potrwać do minuty)");
     try {
-      const res = await fetch(`${API_URL}/api/parties`, { method: "POST" });
+      // ?quiz=<id> w adresie = gra wygenerowanym quizem, bez tego przykładowy quiz
+      const quizId = new URLSearchParams(window.location.search).get("quiz");
+      const res = await fetch(`${API_URL}/api/parties`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(quizId ? { quiz_id: quizId } : {}),
+      });
+      if (res.status === 404) throw new Error("Nie ma takiego quizu (mógł zniknąć po restarcie serwera)");
       if (!res.ok) throw new Error(`Błąd serwera: ${res.status}`);
       const data = await res.json();
       sessionStorage.setItem("qui-host", JSON.stringify(data)); // zapamiętujemy grę
