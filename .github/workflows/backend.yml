@@ -1,0 +1,29 @@
+# Testy backendu przy każdym pull requeście i pushu do main/develop.
+# Żeby czerwone testy blokowały merge: Settings → Branches → reguła dla main → „Require status checks” → backend-tests.
+name: backend
+
+on:
+  pull_request:
+    paths: ["Backend/**", ".github/workflows/backend.yml"]
+  push:
+    branches: [main, develop]
+    paths: ["Backend/**", ".github/workflows/backend.yml"]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11" # jak na Renderze
+          cache: pip
+          cache-dependency-path: Backend/requirements.txt
+      - run: pip install -r requirements.txt ruff
+      - name: Lint (błędy, nieużywane importy, kolejność importów)
+        run: ruff check app tests scripts --select E,F,W,I --line-length 120 --extend-ignore E402 --exclude app/quiz/prompts.py
+      - name: Testy (tymczasowa baza SQLite, bez prawdziwego AI i bucketu)
+        run: pytest -q

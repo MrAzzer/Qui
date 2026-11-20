@@ -1,19 +1,41 @@
 # Render Blueprint — backend (FastAPI + WebSocket).
-# Vercel nie utrzymuje połączeń WebSocket ani stanu w pamięci, więc backend stoi tutaj, a frontend na Vercelu.
+# Frontend stoi na Vercelu (nie utrzymuje WebSocketów), baza i pliki w Neon (dysk darmowego Render jest kasowany).
 services:
   - type: web
     name: qui-backend
     runtime: python
     plan: free
+    branch: main
+    autoDeploy: true # każdy merge do main = nowe wdrożenie
     rootDir: Backend
     buildCommand: pip install -r requirements.txt
-    # Jedna instancja: party są trzymane w pamięci procesu.
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    # Dokładnie JEDEN proces (bez --workers): party żyją w pamięci procesu, drugi worker by ich nie widział.
+    # --ws-max-size: odrzuca ogromne ramki WebSocket już na poziomie serwera (domyślnie 16 MB).
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*' --ws-max-size 65536
+    # Szybki test bez bazy. Pełny (baza, pliki, AI): GET /health/full
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: MAX_PLAYERS
+        value: "50"
       - key: CORS_ORIGINS
-        sync: false # ustaw w panelu Render: adres z Vercela, np. https://qui.vercel.app
-      - key: NVIDIA_API_KEY
+        sync: false # adres frontendu, np. https://qui-react.vercel.app
+      - key: FRONTEND_URL
+        sync: false # ten sam adres — trafia do join_url w kodzie QR
+      - key: LLM_API_KEY
+        sync: false # klucz Groq
+      - key: DATABASE_URL
+        sync: false # Neon PostgreSQL, adres BEZ -pooler (backend ma własną pulę połączeń)
+      - key: S3_BUCKET
+        sync: false # Neon Storage: pliki materiałów, katalog users/<id>/ dla każdego użytkownika
+      - key: AWS_ENDPOINT_URL_S3
         sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: us-east-2
+      - key: SECRET_KEY
+        generateValue: true # Render losuje klucz do podpisywania tokenów logowania (stały między restartami)

@@ -5,9 +5,9 @@ z tymi modelami, jest odrzucana (i ponawiana w generatorze).
 """
 
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.quiz.schemas import Question
 
@@ -79,12 +79,22 @@ def to_game_questions(quiz: AIQuiz, time_limit: int = 20) -> List[Question]:
 class GenerateQuizRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    text: str = Field(min_length=MIN_TEXT_LENGTH, max_length=MAX_TEXT_LENGTH)
+    # Albo wklejony tekst, albo id wgranego materiału (POST /api/materials)
+    text: Optional[str] = Field(default=None, min_length=MIN_TEXT_LENGTH, max_length=MAX_TEXT_LENGTH)
+    material_id: Optional[str] = None
     count: int = Field(default=5, ge=MIN_COUNT, le=MAX_COUNT)
     difficulty: Difficulty = Difficulty.medium
     time_limit: int = Field(default=20, ge=5, le=120)
+    title: Optional[str] = Field(default=None, max_length=120)  # brak = pierwsza linia materiału
+
+    @model_validator(mode="after")
+    def _text_or_material(self) -> "GenerateQuizRequest":
+        if (self.text is None) == (self.material_id is None):
+            raise ValueError("Podaj dokładnie jedno: text albo material_id")
+        return self
 
 
 class QuizResponse(BaseModel):
     id: str
+    title: str = ""
     questions: List[Question]
