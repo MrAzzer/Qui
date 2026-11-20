@@ -1,7 +1,9 @@
 import os
 import tempfile
 
-# Ustawiane PRZED importem aplikacji: testy zawsze na tymczasowej bazie, nigdy na prawdziwej
+# Ustawiane PRZED importem aplikacji: testy zawsze na tymczasowej bazie, nigdy na prawdziwej,
+# i bez Backend/.env dewelopera (inaczej np. MAX_PLAYERS=5 albo prawdziwy bucket zmienia wyniki)
+os.environ["QUI_ENV_FILE"] = ""
 _db_dir = tempfile.mkdtemp(prefix="qui-test-")
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_dir}/test.db"
 os.environ["SECRET_KEY"] = "test-secret-key-only-for-tests-0123456789"
