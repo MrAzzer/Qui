@@ -52,9 +52,9 @@ Każda wiadomość: `{ "type": "...", "data": { ... } }`.
 | `question` | wszyscy | `{ question_id, index, total, text, choices, time_limit, time_left }` |
 | `answer_ack` | gracz | `{ question_id }` |
 | `answer_count` | host | `{ answered, total }` |
-| `reveal` | host | `{ question_id, correct, explanation, hint, choice_counts, is_last, leaderboard }` |
+| `reveal` | host | `{ question_id, correct, explanation, hint, choice_counts, stats, is_last, leaderboard }` — `stats = { players, answered, correct_count, correct_ratio, avg_time_ms, fastest: { nick, time_ms } \| null }` |
 | `reveal` | gracz | jak wyżej + `{ your_answer, your_points, score, streak, rank }`, `leaderboard` = top 5 |
-| `game_over` | wszyscy | `{ podium, leaderboard, weakest_questions: [{ question_id, text, correct_answer, hint, correct_ratio }] }` |
+| `game_over` | wszyscy | `{ podium, leaderboard, weakest_questions: [{ question_id, text, correct_answer, hint, correct_ratio }], question_stats: [{ question_id, text, correct_answer, hint, players, answered, correct_count, correct_ratio, avg_time_ms, choice_counts, fastest }] }` |
 | `kicked` | gracz | — |
 | `error` | jeden klient | `{ message, request? }` |
 

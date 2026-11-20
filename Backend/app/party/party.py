@@ -85,6 +85,7 @@ class Party:
     started_at: Optional[datetime] = None
     answers: Dict[str, Answer] = field(default_factory=dict)  # answers to the current question
     history: List[Dict[str, Answer]] = field(default_factory=list)  # answers to finished questions
+    question_stats: List[Dict[str, Any]] = field(default_factory=list)  # statystyki zakończonych pytań
     # Ostatnio wysłane komunikaty — do odtworzenia ekranu po ponownym połączeniu
     _last_reveal_host: Optional[Dict[str, Any]] = None
     _last_reveal_players: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -372,16 +373,17 @@ class Party:
             player.streak = player.streak + 1 if correct else 0
         self.history.append(self.answers)
 
-        choice_counts = [0] * len(q.choices)
-        for answer in self.answers.values():
-            choice_counts[answer.choice] += 1
+        stats = self._compute_question_stats(q)
+        self.question_stats.append(stats)
         leaderboard = self.leaderboard()
         common = {
             "question_id": q.id,
             "correct": q.correct,
             "explanation": q.explanation,
             "hint": q.hint,
-            "choice_counts": choice_counts,
+            "choice_counts": stats["choice_counts"],
+            "stats": {k: stats[k] for k in ("answered", "players", "correct_count", "correct_ratio",
+                                            "avg_time_ms", "fastest")},
             "is_last": self.current_index == len(self.questions) - 1,
         }
 
@@ -412,6 +414,7 @@ class Party:
             podium=leaderboard[:3],
             leaderboard=leaderboard,
             weakest_questions=self._weakest_questions(),
+            question_stats=self.question_stats,
         )
         await self.broadcast(self._game_over_msg)
         if self.on_finish is not None:
@@ -420,20 +423,40 @@ class Party:
             except Exception:  # błąd zapisu nie może zepsuć gry, która już się skończyła
                 log.exception("Saving results of party %s failed", self.code)
 
+    def _compute_question_stats(self, q: Question) -> Dict[str, Any]:
+        """Statystyki jednego pytania liczone przy odsłonięciu (gracze obecni w tej rundzie)."""
+        players = len(self.players)
+        choice_counts = [0] * len(q.choices)
+        correct_times = []
+        times = []
+        for answer in self.answers.values():
+            choice_counts[answer.choice] += 1
+            times.append(answer.elapsed)
+            if answer.choice == q.correct:
+                correct_times.append(answer.elapsed)
+        fastest = None
+        if correct_times:
+            pid = min((pid for pid, a in self.answers.items() if a.choice == q.correct),
+                      key=lambda pid: self.answers[pid].elapsed)
+            fastest = {"nick": self.players[pid].nick, "time_ms": round(self.answers[pid].elapsed * 1000)}
+        return {
+            "question_id": q.id,
+            "text": q.text,
+            "correct_answer": q.choices[q.correct],
+            "hint": q.hint,
+            "players": players,
+            "answered": len(self.answers),
+            "correct_count": len(correct_times),
+            "correct_ratio": round(len(correct_times) / players, 2) if players else 0.0,
+            "avg_time_ms": round(sum(times) / len(times) * 1000) if times else None,
+            "choice_counts": choice_counts,
+            "fastest": fastest,
+        }
+
     def _weakest_questions(self, limit: int = 3) -> List[Dict[str, Any]]:
-        stats = []
-        player_count = max(len(self.players), 1)
-        for q, answers in zip(self.questions, self.history):
-            correct = sum(1 for a in answers.values() if a.choice == q.correct)
-            stats.append({
-                "question_id": q.id,
-                "text": q.text,
-                "correct_answer": q.choices[q.correct],
-                "hint": q.hint,
-                "correct_ratio": round(correct / player_count, 2),
-            })
-        stats.sort(key=lambda s: s["correct_ratio"])
-        return stats[:limit]
+        keys = ("question_id", "text", "correct_answer", "hint", "correct_ratio")
+        ranked = sorted(self.question_stats, key=lambda s: s["correct_ratio"])
+        return [{k: s[k] for k in keys} for s in ranked[:limit]]
 
     def cancel_timer(self) -> None:
         if self._timer is not None:
