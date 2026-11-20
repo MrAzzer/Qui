@@ -4,6 +4,11 @@ Kahoot like app for studying
 Użytkownicy wrzucają materiały z zajęć (PDF, notatki, slajdy), AI generuje z nich quiz,
 a grupa gra razem w czasie rzeczywistym — każdy na swoim telefonie.
 
+# PREZENTACJA
+[qui prezentacja.pdf](https://github.com/user-attachments/files/34315636/qui.prezentacja.pdf)
+
+
+
 # Stack
 Frontend: React — dwa widoki:
 **Host** (duży ekran / rzutnik) 
