@@ -83,6 +83,10 @@ class Party:
     started_at: Optional[datetime] = None
     answers: Dict[str, Answer] = field(default_factory=dict)  # answers to the current question
     history: List[Dict[str, Answer]] = field(default_factory=list)  # answers to finished questions
+    # Ostatnio wysłane komunikaty — do odtworzenia ekranu po ponownym połączeniu
+    _last_reveal_host: Optional[Dict[str, Any]] = None
+    _last_reveal_players: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    _game_over_msg: Optional[Dict[str, Any]] = None
     _timer: Optional[asyncio.Task] = None
 
     # ---------- helpers ----------
@@ -141,6 +145,10 @@ class Party:
         if self.state == PartyState.QUESTION:
             await self.send_host(self._question_message())
             await self.send_host(message("answer_count", answered=len(self.answers), total=self._active_player_count()))
+        elif self.state == PartyState.REVEAL:
+            await self.send_host(self._last_reveal_host)
+        elif self.state == PartyState.GAME_OVER:
+            await self.send_host(self._game_over_msg)
 
     async def detach_host(self, ws: WebSocket) -> None:
         # The party keeps running; the host can reconnect with the same token.
@@ -188,10 +196,20 @@ class Party:
             score=player.score,
             state=self.state.value,
         ))
-        # Bring a reconnecting player up to date.
-        if self.state == PartyState.QUESTION and player.id not in self.answers:
-            await self._send(ws, self._question_message())
+        await self._send_current_screen(player, ws)
         await self.broadcast_lobby()
+
+    async def _send_current_screen(self, player: Player, ws: WebSocket) -> None:
+        """Po ponownym połączeniu gracz dostaje to, co widzą inni — nie pusty ekran."""
+        if self.state == PartyState.QUESTION:
+            if player.id in self.answers:
+                await self._send(ws, message("answer_ack", question_id=self.current_question.id))
+            else:
+                await self._send(ws, self._question_message())
+        elif self.state == PartyState.REVEAL and player.id in self._last_reveal_players:
+            await self._send(ws, self._last_reveal_players[player.id])
+        elif self.state == PartyState.GAME_OVER:
+            await self._send(ws, self._game_over_msg)
 
     async def detach_player(self, player: Player, ws: WebSocket) -> None:
         if player.ws is not ws:  # already replaced by a newer connection
@@ -327,10 +345,10 @@ class Party:
             "is_last": self.current_index == len(self.questions) - 1,
         }
 
-        await self.send_host(message("reveal", **common, leaderboard=leaderboard))
+        self._last_reveal_host = message("reveal", **common, leaderboard=leaderboard)
         ranks = {row["id"]: row["rank"] for row in leaderboard}
-        await asyncio.gather(*(
-            self._send(p.ws, message(
+        self._last_reveal_players = {
+            p.id: message(
                 "reveal",
                 **common,
                 your_answer=self.answers[p.id].choice if p.id in self.answers else None,
@@ -339,19 +357,22 @@ class Party:
                 streak=p.streak,
                 rank=ranks[p.id],
                 leaderboard=leaderboard[:5],
-            ))
+            )
             for p in self.players.values()
-        ))
+        }
+        await self.send_host(self._last_reveal_host)
+        await asyncio.gather(*(self._send(p.ws, self._last_reveal_players[p.id]) for p in self.players.values()))
 
     async def _game_over(self) -> None:
         self.state = PartyState.GAME_OVER
         leaderboard = self.leaderboard()
-        await self.broadcast(message(
+        self._game_over_msg = message(
             "game_over",
             podium=leaderboard[:3],
             leaderboard=leaderboard,
             weakest_questions=self._weakest_questions(),
-        ))
+        )
+        await self.broadcast(self._game_over_msg)
         if self.on_finish is not None:
             try:
                 await self.on_finish(self)
