@@ -1,17 +1,17 @@
 import asyncio
 import json
 import secrets
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketState
 from sqlmodel import Session
 
 from app.auth.deps import get_optional_user, user_from_token
 from app.config import get_settings
 from app.db import get_session, session_scope
-from app.models import User
+from app.models import Quiz, User
 from app.party.manager import manager
 from app.party.party import (
     CLOSE_BAD_REQUEST,
@@ -32,6 +32,25 @@ router = APIRouter()
 
 class CreatePartyRequest(BaseModel):
     quiz_id: Optional[str] = None
+    max_players: Optional[int] = Field(default=None, ge=1, description="Limit graczy; maks. MAX_PLAYERS z konfiguracji")
+
+
+class PlayerPreview(BaseModel):
+    nick: str
+    connected: bool
+
+
+class PartySummary(BaseModel):
+    code: str
+    title: str
+    state: str
+    joinable: bool
+    player_count: int
+    max_players: int
+    players: List[PlayerPreview]
+    question_count: int
+    current_question: Optional[int]
+    host_connected: bool
 
 
 class CreatePartyResponse(BaseModel):
@@ -47,16 +66,23 @@ def create_party(
     session: Session = Depends(get_session),
 ) -> CreatePartyResponse:
     """Host może być gościem; zalogowanemu gra zapisuje się w historii."""
-    quiz_id = body.quiz_id if body is not None else None
-    if quiz_id is not None:
-        questions = load_questions(session, quiz_id)
+    body = body or CreatePartyRequest()
+    limit = get_settings().max_players
+    if body.max_players is not None and body.max_players > limit:
+        raise HTTPException(422, f"max_players może wynosić najwyżej {limit}")
+    title = None
+    if body.quiz_id is not None:
+        questions = load_questions(session, body.quiz_id)
         if questions is None:
             raise HTTPException(404, "Quiz not found")
+        title = session.get(Quiz, body.quiz_id).title
     else:
         questions = get_sample_questions()
     party = manager.create(
         questions,
-        quiz_id=quiz_id,
+        quiz_id=body.quiz_id,
+        title=title,
+        max_players=body.max_players,
         host_user_id=host.id if host else None,
         on_finish=save_party_results_async,
     )
@@ -64,8 +90,9 @@ def create_party(
     return CreatePartyResponse(code=party.code, host_token=party.host_token, join_url=join_url)
 
 
-@router.get("/api/parties/{code}")
+@router.get("/api/parties/{code}", response_model=PartySummary)
 async def get_party(code: str) -> Dict[str, Any]:
+    """Podgląd party: czy istnieje, czy można dołączyć, ilu graczy, które pytanie trwa."""
     party = manager.get(code)
     if party is None:
         raise HTTPException(404, "Party not found")

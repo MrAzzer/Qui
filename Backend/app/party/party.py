@@ -72,6 +72,7 @@ class Party:
     max_players: int = 50
     max_nick_length: int = 20
     quiz_id: Optional[str] = None  # None = przykładowy quiz
+    title: str = "Przykładowy quiz"
     host_user_id: Optional[int] = None
     # Wołane po końcu gry (zapis wyników do bazy); party nie wie nic o bazie
     on_finish: Optional[Callable[[Party], Awaitable[None]]] = None
@@ -134,12 +135,18 @@ class Party:
         await asyncio.gather(*(self._close(ws, code, reason) for ws in sockets if ws is not None))
 
     def summary(self) -> Dict[str, Any]:
+        """Publiczny podgląd party (bez tokenów i odpowiedzi) — np. dla strony dołączania po skanie QR."""
         return {
             "code": self.code,
+            "title": self.title,
             "state": self.state.value,
             "joinable": self.joinable,
             "player_count": len(self.players),
+            "max_players": self.max_players,
+            "players": [{"nick": p.nick, "connected": p.connected} for p in self.players.values()],
             "question_count": len(self.questions),
+            "current_question": self.current_index + 1 if self.state in (PartyState.QUESTION, PartyState.REVEAL) else None,
+            "host_connected": self.host_ws is not None,
         }
 
     async def _send(self, ws: Optional[WebSocket], msg: Dict[str, Any]) -> None:

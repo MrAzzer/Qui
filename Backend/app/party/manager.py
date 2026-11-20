@@ -22,7 +22,9 @@ class PartyManager:
         questions: List[Question],
         *,
         quiz_id: Optional[str] = None,
+        title: Optional[str] = None,
         host_user_id: Optional[int] = None,
+        max_players: Optional[int] = None,
         on_finish: Optional[Callable[[Party], Awaitable[None]]] = None,
     ) -> Party:
         settings = get_settings()
@@ -31,9 +33,10 @@ class PartyManager:
             code=code,
             host_token=secrets.token_urlsafe(24),
             questions=questions,
-            max_players=settings.max_players,
+            max_players=min(max_players or settings.max_players, settings.max_players),
             max_nick_length=settings.max_nick_length,
             quiz_id=quiz_id,
+            title=title or "Przykładowy quiz",
             host_user_id=host_user_id,
             on_finish=on_finish,
         )

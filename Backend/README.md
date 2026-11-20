@@ -21,8 +21,8 @@ przez IP laptopa (`ipconfig getifaddr en0` na macOS), np. `ws://192.168.1.20:800
 
 | Metoda | Ścieżka | Odpowiedź |
 |---|---|---|
-| `POST` | `/api/parties` | `201 { code, host_token, join_url }`. Body `{ quiz_id }` opcjonalne (bez niego przykładowy quiz). Token logowania opcjonalny — z nim gra trafia do historii hosta |
-| `GET` | `/api/parties/{code}` | `{ code, state, joinable, player_count, question_count }` lub `404` |
+| `POST` | `/api/parties` | `201 { code, host_token, join_url }`. Body opcjonalne: `{ quiz_id?, max_players? }` (bez `quiz_id` przykładowy quiz; `max_players` ≤ `MAX_PLAYERS` z serwera, inaczej `422`). Token logowania opcjonalny — z nim gra trafia do historii hosta |
+| `GET` | `/api/parties/{code}` | `{ code, title, state, joinable, player_count, max_players, players: [{ nick, connected }], question_count, current_question, host_connected }` lub `404` — np. dla strony dołączania po zeskanowaniu QR |
 
 ## WebSocket
 
