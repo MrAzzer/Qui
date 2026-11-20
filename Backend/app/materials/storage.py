@@ -21,6 +21,7 @@ class Storage(Protocol):
     def put(self, key: str, data: bytes, content_type: str) -> None: ...
     def download_url(self, key: str, filename: str) -> str: ...
     def delete(self, key: str) -> None: ...
+    def check(self) -> None: ...
 
 
 def material_key(user_id: int, material_id: str, filename: str) -> str:
@@ -51,6 +52,10 @@ class S3Storage:
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=key)
 
+    def check(self) -> None:
+        """Wyjątek, gdy bucket jest niedostępny (zły klucz, brak bucketu, brak sieci)."""
+        self.client.head_bucket(Bucket=self.bucket)
+
 
 class MemoryStorage:
     """Do testów i pracy lokalnej bez bucketu."""
@@ -66,6 +71,9 @@ class MemoryStorage:
 
     def delete(self, key: str) -> None:
         self.files.pop(key, None)
+
+    def check(self) -> None:
+        pass
 
 
 @lru_cache

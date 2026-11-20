@@ -11,7 +11,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 pytest -q
 ```
 
-Dokumentacja API (Swagger): http://localhost:8000/docs
+Dokumentacja API (Swagger): http://localhost:8000/docs · stan serwera: `/health` (szybki) i `/health/full` (baza, pliki, AI)
 
 **Telefony:** `localhost` nie działa z telefonu. Telefon musi być w tej samej sieci Wi-Fi, a frontend łączy się z backendem
 przez IP laptopa (`ipconfig getifaddr en0` na macOS), np. `ws://192.168.1.20:8000`. W `.env` ustaw
@@ -252,4 +252,25 @@ erDiagram
   Neon usypia bazę po kilku minutach bez ruchu; pierwsze zapytanie po przerwie trwa ok. 1–4 s.
 - **Zmiany schematu:** `create_all` tylko dodaje brakujące tabele, nie zmienia istniejących. Dopóki nie mamy danych do
   zachowania, przy zmianie kolumn wystarczy wyczyścić bazę; potem trzeba dodać migracje (Alembic).
+
+## Wdrożenie (Render + Neon)
+
+Backend: Render (`render.yaml` w katalogu głównym repo). Baza PostgreSQL i pliki: Neon. Frontend: Vercel.
+
+| Zmienna (panel Render → Environment) | Skąd | Co się stanie bez niej |
+|---|---|---|
+| `DATABASE_URL` | Neon → Connect, adres **bez** `-pooler` | SQLite na tymczasowym dysku — dane znikają przy każdym restarcie (błąd w logach) |
+| `S3_BUCKET`, `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Neon → Storage | zapisuje się sam tekst materiałów, bez plików |
+| `SECRET_KEY` | Render generuje sam (`generateValue`) | każdy restart wylogowuje wszystkich |
+| `LLM_API_KEY` | GroqCloud | generowanie quizu → `502` |
+| `CORS_ORIGINS`, `FRONTEND_URL` | adres frontendu na Vercelu | przeglądarka blokuje zapytania; zły link w QR |
+| `MAX_PLAYERS` | `50` w `render.yaml` | domyślnie 50 |
+
+- **Jeden proces.** Party żyją w pamięci, więc nie dodawaj `--workers` ani drugiej instancji (wymagałoby to Redisa).
+- **Po wdrożeniu** sprawdź `https://<backend>/health/full` → wszystkie `checks.*.ok = true`. Pole `commit` pokazuje wdrożoną wersję.
+  W logach Render pierwsza linia aplikacji: `Qui <wersja>: db=postgresql, storage=s3, ai=…, secret_key=set`.
+- **Przed demo** (ok. 2 min wcześniej): otwórz `/health/full` — budzi uśpiony Render (do ~1 min) i bazę Neon (1–4 s).
+  Party twórz tuż przed grą: restart lub uśpienie serwera kasuje trwające gry (quizy i historia zostają w bazie).
+- **Region.** Neon stoi w `us-east-2` (Ohio). Gra na żywo zależy od odległości telefonów od Rendera, nie od bazy —
+  dla grupy w Polsce najszybszy byłby Render we Frankfurcie (region wybiera się przy tworzeniu serwisu).
 
