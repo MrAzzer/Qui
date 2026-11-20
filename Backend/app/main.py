@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 
@@ -8,6 +10,7 @@ from app.auth.router import router as auth_router
 from app.config import get_settings
 from app.db import create_db_and_tables
 from app.materials.router import router as materials_router
+from app.party.manager import manager
 from app.party.router import router as party_router
 from app.quiz.router import router as quiz_router
 from app.users.router import router as users_router
@@ -21,7 +24,11 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     # Tworzy brakujące tabele (istniejących nie zmienia — zmiany schematu → migracje, patrz README)
     create_db_and_tables()
+    cleanup = asyncio.create_task(manager.run_cleanup_loop())
     yield
+    cleanup.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await cleanup
 
 
 app = FastAPI(title="Qui API", lifespan=lifespan)

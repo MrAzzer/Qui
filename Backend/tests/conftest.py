@@ -14,11 +14,13 @@ from sqlmodel import SQLModel  # noqa: E402
 from app.db import create_db_and_tables, get_engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.materials.storage import MemoryStorage, get_storage  # noqa: E402
+from app.party.manager import manager  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def fresh_db():
-    """Każdy test zaczyna od pustej bazy."""
+    """Każdy test zaczyna od pustej bazy i bez party w pamięci."""
+    manager.clear()
     SQLModel.metadata.drop_all(get_engine())
     create_db_and_tables()
     yield

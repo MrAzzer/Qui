@@ -1,8 +1,13 @@
+import asyncio
+import logging
 import secrets
+import time
 from typing import Awaitable, Callable, Dict, List, Optional
 
 from app.config import get_settings
-from app.party.party import Party
+from app.party.party import CLOSE_EXPIRED, Party
+
+log = logging.getLogger(__name__)
 from app.quiz.schemas import Question
 
 
@@ -42,6 +47,41 @@ class PartyManager:
         party = self._parties.pop(code, None)
         if party is not None:
             party.cancel_timer()
+
+    def __len__(self) -> int:
+        return len(self._parties)
+
+    def clear(self) -> None:
+        for code in list(self._parties):
+            self.remove(code)
+
+    async def cleanup(self, now: Optional[float] = None) -> List[str]:
+        """Usuwa porzucone i dawno zakończone party. Zwraca ich kody."""
+        s = get_settings()
+        now = time.monotonic() if now is None else now
+        expired = [
+            code for code, party in self._parties.items()
+            if party.is_expired(now, s.party_idle_ttl, s.party_finished_ttl, s.party_max_age)
+        ]
+        for code in expired:
+            party = self._parties.get(code)
+            if party is None:
+                continue
+            self.remove(code)
+            await party.close_all(CLOSE_EXPIRED, "Party expired")
+        if expired:
+            log.info("Removed %d expired parties, %d left", len(expired), len(self._parties))
+        return expired
+
+    async def run_cleanup_loop(self) -> None:
+        """Zadanie w tle uruchamiane przy starcie serwera."""
+        interval = get_settings().party_cleanup_interval
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self.cleanup()
+            except Exception:
+                log.exception("Party cleanup failed")
 
     def _new_code(self) -> str:
         while True:

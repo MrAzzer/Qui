@@ -20,6 +20,7 @@ CLOSE_BAD_REQUEST = 4400
 CLOSE_UNAUTHORIZED = 4401
 CLOSE_KICKED = 4403
 CLOSE_NOT_FOUND = 4404
+CLOSE_EXPIRED = 4408  # party usunięte przez sprzątanie
 CLOSE_REPLACED = 4409
 
 
@@ -88,6 +89,10 @@ class Party:
     _last_reveal_players: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     _game_over_msg: Optional[Dict[str, Any]] = None
     _timer: Optional[asyncio.Task] = None
+    # Do sprzątania (czas z time.monotonic): od kiedy nikt nie jest połączony, kiedy gra się skończyła
+    created_at: float = field(default_factory=time.monotonic)
+    idle_since: Optional[float] = field(default_factory=time.monotonic)
+    finished_at: Optional[float] = None
 
     # ---------- helpers ----------
 
@@ -104,6 +109,29 @@ class Party:
     def leaderboard(self) -> List[Dict[str, Any]]:
         ranked = sorted(self.players.values(), key=lambda p: p.score, reverse=True)
         return [{"rank": i + 1, **p.public()} for i, p in enumerate(ranked)]
+
+    @property
+    def has_connections(self) -> bool:
+        return self.host_ws is not None or any(p.connected for p in self.players.values())
+
+    def _update_idle(self) -> None:
+        if self.has_connections:
+            self.idle_since = None
+        elif self.idle_since is None:
+            self.idle_since = time.monotonic()
+
+    def is_expired(self, now: float, idle_ttl: float, finished_ttl: float, max_age: float) -> bool:
+        """Czy party można już usunąć z pamięci."""
+        if now - self.created_at > max_age:
+            return True
+        if self.finished_at is not None and now - self.finished_at > finished_ttl:
+            return True
+        return self.idle_since is not None and now - self.idle_since > idle_ttl
+
+    async def close_all(self, code: int, reason: str) -> None:
+        """Zamyka wszystkie połączenia (przy usuwaniu party)."""
+        sockets = [self.host_ws] + [p.ws for p in self.players.values()]
+        await asyncio.gather(*(self._close(ws, code, reason) for ws in sockets if ws is not None))
 
     def summary(self) -> Dict[str, Any]:
         return {
@@ -140,6 +168,7 @@ class Party:
         if self.host_ws is not None:
             await self._close(self.host_ws, CLOSE_REPLACED, "Host connected from another device")
         self.host_ws = ws
+        self._update_idle()
         await self.send_host(message("host_joined", **self.summary()))
         await self.send_host(message("lobby_update", players=[p.public() for p in self.players.values()]))
         if self.state == PartyState.QUESTION:
@@ -154,6 +183,7 @@ class Party:
         # The party keeps running; the host can reconnect with the same token.
         if self.host_ws is ws:
             self.host_ws = None
+            self._update_idle()
 
     def join(self, nick: str, reconnect_token: Optional[str], user_id: Optional[int] = None) -> Player:
         """Find the player for a reconnect token (or logged-in user), or register a new one."""
@@ -188,6 +218,7 @@ class Party:
         if player.ws is not None:
             await self._close(player.ws, CLOSE_REPLACED, "Connected from another device")
         player.ws = ws
+        self._update_idle()
         await self._send(ws, message(
             "joined",
             player_id=player.id,
@@ -215,6 +246,7 @@ class Party:
         if player.ws is not ws:  # already replaced by a newer connection
             return
         player.ws = None
+        self._update_idle()
         # A dropped phone doesn't end the question: it may reconnect before the timer runs out.
         await self.broadcast_lobby()
 
@@ -227,6 +259,7 @@ class Party:
             ws, player.ws = player.ws, None
             await self._send(ws, message("kicked"))
             await self._close(ws, CLOSE_KICKED, "Kicked by host")
+        self._update_idle()
         await self.broadcast_lobby()
         await self._maybe_reveal_early()
 
@@ -365,6 +398,7 @@ class Party:
 
     async def _game_over(self) -> None:
         self.state = PartyState.GAME_OVER
+        self.finished_at = time.monotonic()
         leaderboard = self.leaderboard()
         self._game_over_msg = message(
             "game_over",

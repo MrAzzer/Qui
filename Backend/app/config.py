@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     max_players: int = 50
     max_nick_length: int = 20
 
+    # Sprzątanie party z pamięci (sekundy)
+    party_idle_ttl: int = 15 * 60  # nikt nie jest połączony
+    party_finished_ttl: int = 30 * 60  # od końca gry, nawet z otwartymi kartami
+    party_max_age: int = 6 * 60 * 60  # twardy limit życia party
+    party_cleanup_interval: int = 60
+
     # Baza: SQLite lokalnie, PostgreSQL na produkcji (np. postgresql://user:pass@host/db z Neon)
     database_url: str = "sqlite:///./qui.db"
 

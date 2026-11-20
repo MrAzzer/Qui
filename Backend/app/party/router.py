@@ -5,6 +5,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+from starlette.websockets import WebSocketState
 from sqlmodel import Session
 
 from app.auth.deps import get_optional_user, user_from_token
@@ -81,7 +82,13 @@ async def _reject(ws: WebSocket, code: int, reason: str) -> None:
 async def _message_loop(ws: WebSocket, handle: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
     """Read {"type", "data"} messages until disconnect; report bad input back to the client."""
     while True:
-        raw = await ws.receive_text()
+        try:
+            raw = await ws.receive_text()
+        except RuntimeError:
+            # serwer sam zamknął połączenie (wyrzucenie, inne urządzenie, sprzątanie party)
+            if ws.application_state == WebSocketState.DISCONNECTED:
+                return
+            raise
         try:
             msg = json.loads(raw)
             type_ = msg["type"]

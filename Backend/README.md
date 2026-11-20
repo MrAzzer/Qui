@@ -59,7 +59,14 @@ Każda wiadomość: `{ "type": "...", "data": { ... } }`.
 | `error` | jeden klient | `{ message, request? }` |
 
 Kody zamknięcia: `4400` zły nick / gra już trwa / party pełne, `4401` zły token hosta, `4403` wyrzucony,
-`4404` brak party, `4409` to samo konto połączyło się z innego urządzenia.
+`4404` brak party, `4408` party wygasło (sprzątanie), `4409` to samo konto połączyło się z innego urządzenia.
+
+**Powrót po rozłączeniu:** po ponownym połączeniu (`reconnect_token` albo `access_token`) gracz dostaje bieżący ekran:
+otwarte pytanie (albo `answer_ack`, jeśli już odpowiedział), swój `reveal` lub `game_over`. Host — to samo.
+
+**Sprzątanie party:** party żyją w pamięci i są usuwane automatycznie (sprawdzanie co minutę):
+po 15 min, gdy nikt nie jest połączony; 30 min po końcu gry; zawsze po 6 h. Czasy w `.env`:
+`PARTY_IDLE_TTL`, `PARTY_FINISHED_TTL`, `PARTY_MAX_AGE` (sekundy).
 
 ## Moduł AI (Marvin): `app/quiz/`
 
